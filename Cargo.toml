@@ -1,0 +1,22 @@
+[package]
+name = "lio-highs"
+version = "0.1.0"
+authors = ["Mohammed Ghannam <mohammad.m.ghannam@gmail.com>"]
+edition = "2021"
+description = "Rust bindings for the HiGHS linear programming solver, customized for lio."
+license = "MIT"
+repository = "https://github.com/mmghannam/lio-highs"
+keywords = ["linear-programming", "optimization", "math", "solver"]
+
+[dependencies]
+log = "0.4"
+
+[build-dependencies]
+bindgen = "0.71.1"
+cmake = "0.1.49"
+
+[features]
+default = ["highs_release"]
+highs_release = []
+ninja = []
+libz = []
