@@ -889,6 +889,12 @@ impl Model {
 
         Ok(implications)
     }
+
+    /// Check if a variable was probed for a given value during MIP presolve.
+    /// Returns true if probing was performed, even if no implications were found.
+    pub fn implications_cached(&self, col: Col, val: bool) -> bool {
+        unsafe { Highs_implicationsCached(self.highs.ptr(), col as HighsInt, val as HighsInt) != 0 }
+    }
 }
 
 impl From<SolvedModel> for Model {
@@ -1564,6 +1570,12 @@ impl SolvedModel {
             .collect();
 
         Ok(implications)
+    }
+
+    /// Check if a variable was probed for a given value during MIP presolve.
+    /// Returns true if probing was performed, even if no implications were found.
+    pub fn implications_cached(&self, col: Col, val: bool) -> bool {
+        unsafe { Highs_implicationsCached(self.highs.ptr(), col as HighsInt, val as HighsInt) != 0 }
     }
 }
 
