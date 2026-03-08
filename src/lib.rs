@@ -583,15 +583,27 @@ impl Model {
         self.highs.set_option(option, value)
     }
 
-    /// Find the optimal value for the problem, panic if the problem is incoherent
-    pub fn solve(self) -> SolvedModel {
-        self.try_solve().expect("HiGHS error: invalid problem")
+    /// Clear the solver (LP data, solution, and basis) while keeping the model.
+    pub fn clear_solver(&mut self) {
+        unsafe {
+            Highs_clearSolver(self.highs.mut_ptr());
+        }
     }
 
-    /// Find the optimal value for the problem, return an error if the problem is incoherent
-    pub fn try_solve(mut self) -> Result<SolvedModel, HighsStatus> {
-        unsafe { highs_call!(Highs_run(self.highs.mut_ptr())) }
-            .map(|_| SolvedModel { highs: self.highs })
+    /// Find the optimal value for the problem, panic if the problem is incoherent
+    pub fn solve(self) -> SolvedModel {
+        self.try_solve()
+            .map_err(|(status, _)| status)
+            .expect("HiGHS error: invalid problem")
+    }
+
+    /// Find the optimal value for the problem, return an error if the problem is incoherent.
+    /// On error, returns both the error status and the model back for potential retry.
+    pub fn try_solve(mut self) -> Result<SolvedModel, (HighsStatus, Model)> {
+        match unsafe { highs_call!(Highs_run(self.highs.mut_ptr())) } {
+            Ok(_) => Ok(SolvedModel { highs: self.highs }),
+            Err(status) => Err((status, self)),
+        }
     }
 
     /// Adds a new constraint to the highs model.
@@ -894,6 +906,70 @@ impl Model {
     /// Returns true if probing was performed, even if no implications were found.
     pub fn implications_cached(&self, col: Col, val: bool) -> bool {
         unsafe { Highs_implicationsCached(self.highs.ptr(), col as HighsInt, val as HighsInt) != 0 }
+    }
+
+    /// Check if clique data is available from MIP presolve
+    pub fn has_cliques(&self) -> bool {
+        unsafe { Highs_hasCliques(self.highs.ptr()) != 0 }
+    }
+
+    /// Get the number of cliques discovered during MIP presolve
+    pub fn num_cliques(&self) -> usize {
+        unsafe { Highs_getNumCliques(self.highs.ptr()) as usize }
+    }
+
+    /// Get all cliques discovered during MIP presolve.
+    /// Returns a vector of cliques, where each clique is a vector of (col, val) pairs.
+    /// A CliqueVar(col, val=true) means "variable col = 1"; the clique says at most
+    /// one of these can hold simultaneously.
+    pub fn get_cliques(&self) -> Result<Vec<Vec<(Col, bool)>>, HighsStatus> {
+        let mut num_cliques: HighsInt = 0;
+        let mut num_entries: HighsInt = 0;
+
+        // First call to get sizes
+        let status = unsafe {
+            Highs_getCliques(
+                self.highs.ptr(),
+                &mut num_cliques,
+                &mut num_entries,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        try_handle_status(status, "getting clique sizes")?;
+
+        if num_cliques == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut clique_start: Vec<HighsInt> = vec![0; (num_cliques + 1) as usize];
+        let mut clique_col: Vec<HighsInt> = vec![0; num_entries as usize];
+        let mut clique_val: Vec<HighsInt> = vec![0; num_entries as usize];
+
+        let status = unsafe {
+            Highs_getCliques(
+                self.highs.ptr(),
+                &mut num_cliques,
+                &mut num_entries,
+                clique_start.as_mut_ptr(),
+                clique_col.as_mut_ptr(),
+                clique_val.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting cliques")?;
+
+        let cliques: Vec<Vec<(Col, bool)>> = (0..num_cliques as usize)
+            .map(|i| {
+                let start = clique_start[i] as usize;
+                let end = clique_start[i + 1] as usize;
+                (start..end)
+                    .map(|j| (clique_col[j] as Col, clique_val[j] != 0))
+                    .collect()
+            })
+            .collect();
+
+        Ok(cliques)
     }
 }
 
@@ -1497,6 +1573,16 @@ impl SolvedModel {
         unsafe { Highs_getIterationCount(self.highs.ptr()) }
     }
 
+    /// Gets a double info value by name (e.g., "max_primal_infeasibility", "max_dual_infeasibility")
+    pub fn get_double_info_value(&self, name: &str) -> f64 {
+        let mut value: f64 = 0.0;
+        let info_name = CString::new(name).unwrap();
+        unsafe {
+            Highs_getDoubleInfoValue(self.highs.ptr(), info_name.as_ptr(), &mut value);
+        }
+        value
+    }
+
     /// Gets the simplex iteration count
     pub fn get_simplex_iteration_count(&self) -> i32 {
         let mut value: HighsInt = 0;
@@ -1576,6 +1662,67 @@ impl SolvedModel {
     /// Returns true if probing was performed, even if no implications were found.
     pub fn implications_cached(&self, col: Col, val: bool) -> bool {
         unsafe { Highs_implicationsCached(self.highs.ptr(), col as HighsInt, val as HighsInt) != 0 }
+    }
+
+    /// Check if clique data is available from MIP presolve
+    pub fn has_cliques(&self) -> bool {
+        unsafe { Highs_hasCliques(self.highs.ptr()) != 0 }
+    }
+
+    /// Get the number of cliques discovered during MIP presolve
+    pub fn num_cliques(&self) -> usize {
+        unsafe { Highs_getNumCliques(self.highs.ptr()) as usize }
+    }
+
+    /// Get all cliques discovered during MIP presolve.
+    /// Returns a vector of cliques, where each clique is a vector of (col, val) pairs.
+    pub fn get_cliques(&self) -> Result<Vec<Vec<(Col, bool)>>, HighsStatus> {
+        let mut num_cliques: HighsInt = 0;
+        let mut num_entries: HighsInt = 0;
+
+        let status = unsafe {
+            Highs_getCliques(
+                self.highs.ptr(),
+                &mut num_cliques,
+                &mut num_entries,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        try_handle_status(status, "getting clique sizes")?;
+
+        if num_cliques == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut clique_start: Vec<HighsInt> = vec![0; (num_cliques + 1) as usize];
+        let mut clique_col: Vec<HighsInt> = vec![0; num_entries as usize];
+        let mut clique_val: Vec<HighsInt> = vec![0; num_entries as usize];
+
+        let status = unsafe {
+            Highs_getCliques(
+                self.highs.ptr(),
+                &mut num_cliques,
+                &mut num_entries,
+                clique_start.as_mut_ptr(),
+                clique_col.as_mut_ptr(),
+                clique_val.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting cliques")?;
+
+        let cliques: Vec<Vec<(Col, bool)>> = (0..num_cliques as usize)
+            .map(|i| {
+                let start = clique_start[i] as usize;
+                let end = clique_start[i + 1] as usize;
+                (start..end)
+                    .map(|j| (clique_col[j] as Col, clique_val[j] != 0))
+                    .collect()
+            })
+            .collect();
+
+        Ok(cliques)
     }
 }
 
@@ -1751,5 +1898,40 @@ mod test {
         let solution = solved.get_solution();
         assert_eq!(solution.columns(), vec![0., 6., 0.5]);
         assert_eq!(solution.rows(), vec![6., 7.]);
+    }
+
+    #[test]
+    fn test_presolve_cliques() {
+        // Load a real MIP instance that has cliques
+        // Decompress the gzipped file first
+        let gz_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../sublios/grab-cliques/tests/data/irp.mps.gz"
+        );
+        let tmp_path = "/tmp/irp_clique_test.mps";
+        std::process::Command::new("gunzip")
+            .args(["-k", "-f", "-c", gz_path])
+            .stdout(std::fs::File::create(tmp_path).unwrap())
+            .status()
+            .expect("failed to decompress");
+        let mut model = Model::default();
+        model.read(tmp_path);
+
+        model.presolve();
+
+        println!("has_cliques: {}", model.has_cliques());
+        println!("num_cliques: {}", model.num_cliques());
+
+        // HiGHS should discover cliques during presolve
+        assert!(model.has_cliques(), "should have cliques after presolve");
+        assert!(model.num_cliques() > 0, "should have > 0 cliques");
+
+        let cliques = model.get_cliques().unwrap();
+        assert!(!cliques.is_empty(), "cliques should not be empty");
+
+        // Each clique should have at least 2 members
+        for clique in &cliques {
+            assert!(clique.len() >= 2, "clique should have >= 2 members");
+        }
     }
 }
