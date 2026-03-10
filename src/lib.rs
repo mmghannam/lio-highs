@@ -1143,7 +1143,7 @@ impl<H: HasHighsPtr> LikeModel for H {
             highs_call!(Highs_getColName(
                 highs_ptr.unsafe_mut_ptr(),
                 col as i32,
-                name_buf.as_mut_ptr() as *mut i8
+                name_buf.as_mut_ptr() as *mut std::os::raw::c_char
             ))?;
         }
 
