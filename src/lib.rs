@@ -998,6 +998,76 @@ impl Model {
 
         Ok(cliques)
     }
+
+    /// Run symmetry detection on the presolved model.
+    /// Requires `presolve()` to have been called first.
+    pub fn detect_symmetries(&mut self) -> Result<(), HighsStatus> {
+        let status = unsafe { Highs_detectSymmetries(self.highs.mut_ptr()) };
+        try_handle_status(status, "detecting symmetries")?;
+        Ok(())
+    }
+
+    /// Check if symmetry data is available
+    pub fn has_symmetries(&self) -> bool {
+        unsafe { Highs_hasSymmetries(self.highs.ptr()) != 0 }
+    }
+
+    /// Get the number of symmetry generators found
+    pub fn symmetry_num_generators(&self) -> usize {
+        unsafe { Highs_getSymmetryNumGenerators(self.highs.ptr()) as usize }
+    }
+
+    /// Get the number of columns involved in symmetry permutations
+    pub fn symmetry_num_columns(&self) -> usize {
+        unsafe { Highs_getSymmetryNumColumns(self.highs.ptr()) as usize }
+    }
+
+    /// Get the orbit representative for each column in the presolved model.
+    /// Returns a vector where orbit[col] is the orbit representative column index,
+    /// or -1 if the column is not involved in any symmetry.
+    pub fn get_symmetry_orbit(&self) -> Result<Vec<i32>, HighsStatus> {
+        let num_col = unsafe { Highs_getPresolvedNumCol(self.highs.ptr()) } as usize;
+        let mut orbit: Vec<HighsInt> = vec![0; num_col];
+        let status = unsafe {
+            Highs_getSymmetryOrbit(self.highs.ptr(), orbit.as_mut_ptr())
+        };
+        try_handle_status(status, "getting symmetry orbit")?;
+        Ok(orbit.into_iter().map(|x| x as i32).collect())
+    }
+
+    /// Get the symmetry generator permutations.
+    /// Returns `SymmetryData` containing the generator permutations and
+    /// the columns they act on.
+    pub fn get_symmetry_generators(&self) -> Result<SymmetryData, HighsStatus> {
+        let num_generators = self.symmetry_num_generators();
+        let num_columns = self.symmetry_num_columns();
+
+        if num_generators == 0 || num_columns == 0 {
+            return Ok(SymmetryData {
+                num_generators,
+                perm_columns: Vec::new(),
+                permutations: Vec::new(),
+            });
+        }
+
+        let mut perm_columns: Vec<HighsInt> = vec![0; num_columns];
+        let mut permutations: Vec<HighsInt> = vec![0; num_generators * num_columns];
+
+        let status = unsafe {
+            Highs_getSymmetryPermutations(
+                self.highs.ptr(),
+                perm_columns.as_mut_ptr(),
+                permutations.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting symmetry permutations")?;
+
+        Ok(SymmetryData {
+            num_generators,
+            perm_columns: perm_columns.into_iter().map(|x| x as Col).collect(),
+            permutations: permutations.into_iter().map(|x| x as Col).collect(),
+        })
+    }
 }
 
 impl From<SolvedModel> for Model {
@@ -1751,6 +1821,64 @@ impl SolvedModel {
 
         Ok(cliques)
     }
+
+    /// Check if symmetry data is available
+    pub fn has_symmetries(&self) -> bool {
+        unsafe { Highs_hasSymmetries(self.highs.ptr()) != 0 }
+    }
+
+    /// Get the number of symmetry generators found
+    pub fn symmetry_num_generators(&self) -> usize {
+        unsafe { Highs_getSymmetryNumGenerators(self.highs.ptr()) as usize }
+    }
+
+    /// Get the number of columns involved in symmetry permutations
+    pub fn symmetry_num_columns(&self) -> usize {
+        unsafe { Highs_getSymmetryNumColumns(self.highs.ptr()) as usize }
+    }
+
+    /// Get the orbit representative for each column in the presolved model.
+    pub fn get_symmetry_orbit(&self) -> Result<Vec<i32>, HighsStatus> {
+        let num_col = unsafe { Highs_getPresolvedNumCol(self.highs.ptr()) } as usize;
+        let mut orbit: Vec<HighsInt> = vec![0; num_col];
+        let status = unsafe {
+            Highs_getSymmetryOrbit(self.highs.ptr(), orbit.as_mut_ptr())
+        };
+        try_handle_status(status, "getting symmetry orbit")?;
+        Ok(orbit.into_iter().map(|x| x as i32).collect())
+    }
+
+    /// Get the symmetry generator permutations.
+    pub fn get_symmetry_generators(&self) -> Result<SymmetryData, HighsStatus> {
+        let num_generators = self.symmetry_num_generators();
+        let num_columns = self.symmetry_num_columns();
+
+        if num_generators == 0 || num_columns == 0 {
+            return Ok(SymmetryData {
+                num_generators,
+                perm_columns: Vec::new(),
+                permutations: Vec::new(),
+            });
+        }
+
+        let mut perm_columns: Vec<HighsInt> = vec![0; num_columns];
+        let mut permutations: Vec<HighsInt> = vec![0; num_generators * num_columns];
+
+        let status = unsafe {
+            Highs_getSymmetryPermutations(
+                self.highs.ptr(),
+                perm_columns.as_mut_ptr(),
+                permutations.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting symmetry permutations")?;
+
+        Ok(SymmetryData {
+            num_generators,
+            perm_columns: perm_columns.into_iter().map(|x| x as Col).collect(),
+            permutations: permutations.into_iter().map(|x| x as Col).collect(),
+        })
+    }
 }
 
 /// Trait for types that can provide access to the underlying HiGHS pointer
@@ -1883,6 +2011,18 @@ pub struct Implication {
     pub bound_value: f64,
 }
 
+/// Symmetry generator data from symmetry detection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SymmetryData {
+    /// Number of generators
+    pub num_generators: usize,
+    /// Column indices involved in permutations (into presolved model)
+    pub perm_columns: Vec<Col>,
+    /// Flat array of permutations: permutations[g * num_columns + i] is the
+    /// image of perm_columns[i] under generator g
+    pub permutations: Vec<Col>,
+}
+
 #[allow(non_upper_case_globals)]
 impl From<HighsInt> for BasisStatus {
     fn from(status: HighsInt) -> Self {
@@ -1980,6 +2120,85 @@ mod test {
         // Each clique should have at least 2 members
         for clique in &cliques {
             assert!(clique.len() >= 2, "clique should have >= 2 members");
+        }
+    }
+
+    #[test]
+    fn test_symmetry_detection() {
+        // Graph coloring on K6 (complete graph on 6 vertices) with 4 colors.
+        // This has rich symmetry and doesn't get presolved away.
+        let v = 6;
+        let c = 4;
+        let mut pb = RowProblem::default();
+
+        // x[v][c] = 1 iff vertex v gets color c
+        let vars: Vec<Vec<Col>> = (0..v)
+            .map(|_| (0..c).map(|_| pb.add_integer_column(1., 0..=1)).collect())
+            .collect();
+
+        // Each vertex gets exactly one color
+        for vi in 0..v {
+            let coeffs: Vec<(Col, f64)> = vars[vi].iter().map(|&x| (x, 1.0)).collect();
+            pb.add_row(1.0..=1.0, &coeffs);
+        }
+
+        // Adjacent vertices can't share a color (complete graph: all pairs)
+        for v1 in 0..v {
+            for v2 in (v1 + 1)..v {
+                for ci in 0..c {
+                    pb.add_row(..=1.0, &[(vars[v1][ci], 1.0), (vars[v2][ci], 1.0)]);
+                }
+            }
+        }
+
+        let mut model = pb.optimise(Sense::Minimise);
+        model.set_option("output_flag", false);
+
+        model.presolve();
+        model.detect_symmetries().expect("detect_symmetries should succeed");
+
+        assert!(model.has_symmetries(), "should have symmetries");
+        let num_gen = model.symmetry_num_generators();
+        assert!(num_gen > 0, "should have at least one generator");
+
+        let orbit = model.get_symmetry_orbit().unwrap();
+        let involved: Vec<_> = orbit.iter().filter(|&&x| x >= 0).collect();
+        assert!(!involved.is_empty(), "some columns should be in orbits");
+
+        // For K6 with identical costs, all variables are in the same orbit
+        let reps: std::collections::HashSet<_> = involved.iter().collect();
+        assert_eq!(
+            reps.len(),
+            1,
+            "all symmetric variables should share the same orbit representative"
+        );
+
+        let sym = model.get_symmetry_generators().unwrap();
+        // Note: some generators may have been absorbed into orbitopes,
+        // so perm_columns might be empty. That's valid — orbits still work.
+        if !sym.perm_columns.is_empty() {
+            let num_cols = sym.perm_columns.len();
+            assert_eq!(
+                sym.permutations.len(),
+                sym.num_generators * num_cols,
+                "permutation array should have num_generators * num_columns entries"
+            );
+
+            // Verify each generator is a valid permutation of perm_columns
+            for g in 0..sym.num_generators {
+                let perm: Vec<Col> = (0..num_cols)
+                    .map(|i| sym.permutations[g * num_cols + i])
+                    .collect();
+                let mut sorted_perm = perm.clone();
+                sorted_perm.sort();
+                let mut sorted_cols = sym.perm_columns.clone();
+                sorted_cols.sort();
+                assert_eq!(
+                    sorted_perm, sorted_cols,
+                    "generator {} should be a valid permutation",
+                    g
+                );
+            }
         }
     }
 }
