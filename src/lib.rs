@@ -1068,6 +1068,65 @@ impl Model {
             permutations: permutations.into_iter().map(|x| x as Col).collect(),
         })
     }
+
+    /// Get the number of presolve reductions in the postsolve stack
+    pub fn num_presolve_reductions(&self) -> usize {
+        unsafe { Highs_getNumPresolveReductions(self.highs.ptr()) as usize }
+    }
+
+    /// Get the ordered sequence of presolve reductions
+    pub fn get_presolve_reductions(&self) -> Result<Vec<PresolveReduction>, HighsStatus> {
+        let mut num_reductions: HighsInt = 0;
+
+        // First call to get count
+        let status = unsafe {
+            Highs_getPresolveReductions(
+                self.highs.ptr(),
+                &mut num_reductions,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        try_handle_status(status, "getting presolve reduction count")?;
+
+        if num_reductions == 0 {
+            return Ok(Vec::new());
+        }
+
+        let n = num_reductions as usize;
+        let mut types: Vec<HighsInt> = vec![0; n];
+        let mut cols: Vec<HighsInt> = vec![0; n];
+        let mut rows: Vec<HighsInt> = vec![0; n];
+        let mut values: Vec<f64> = vec![0.0; n];
+        let mut sources: Vec<HighsInt> = vec![-1; n];
+
+        let status = unsafe {
+            Highs_getPresolveReductions(
+                self.highs.ptr(),
+                &mut num_reductions,
+                types.as_mut_ptr(),
+                cols.as_mut_ptr(),
+                rows.as_mut_ptr(),
+                values.as_mut_ptr(),
+                sources.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting presolve reductions")?;
+
+        let reductions = (0..n)
+            .map(|i| PresolveReduction {
+                reduction_type: PresolveReductionType::from_int(types[i]),
+                col: cols[i] as i32,
+                row: rows[i] as i32,
+                value: values[i],
+                source: PresolveRuleType::from_int(sources[i]),
+            })
+            .collect();
+        Ok(reductions)
+    }
 }
 
 impl From<SolvedModel> for Model {
@@ -1879,6 +1938,64 @@ impl SolvedModel {
             permutations: permutations.into_iter().map(|x| x as Col).collect(),
         })
     }
+
+    /// Get the number of presolve reductions in the postsolve stack
+    pub fn num_presolve_reductions(&self) -> usize {
+        unsafe { Highs_getNumPresolveReductions(self.highs.ptr()) as usize }
+    }
+
+    /// Get the ordered sequence of presolve reductions
+    pub fn get_presolve_reductions(&self) -> Result<Vec<PresolveReduction>, HighsStatus> {
+        let mut num_reductions: HighsInt = 0;
+
+        let status = unsafe {
+            Highs_getPresolveReductions(
+                self.highs.ptr(),
+                &mut num_reductions,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        try_handle_status(status, "getting presolve reduction count")?;
+
+        if num_reductions == 0 {
+            return Ok(Vec::new());
+        }
+
+        let n = num_reductions as usize;
+        let mut types: Vec<HighsInt> = vec![0; n];
+        let mut cols: Vec<HighsInt> = vec![0; n];
+        let mut rows: Vec<HighsInt> = vec![0; n];
+        let mut values: Vec<f64> = vec![0.0; n];
+        let mut sources: Vec<HighsInt> = vec![-1; n];
+
+        let status = unsafe {
+            Highs_getPresolveReductions(
+                self.highs.ptr(),
+                &mut num_reductions,
+                types.as_mut_ptr(),
+                cols.as_mut_ptr(),
+                rows.as_mut_ptr(),
+                values.as_mut_ptr(),
+                sources.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting presolve reductions")?;
+
+        let reductions = (0..n)
+            .map(|i| PresolveReduction {
+                reduction_type: PresolveReductionType::from_int(types[i]),
+                col: cols[i] as i32,
+                row: rows[i] as i32,
+                value: values[i],
+                source: PresolveRuleType::from_int(sources[i]),
+            })
+            .collect();
+        Ok(reductions)
+    }
 }
 
 /// Trait for types that can provide access to the underlying HiGHS pointer
@@ -2021,6 +2138,208 @@ pub struct SymmetryData {
     /// Flat array of permutations: permutations[g * num_columns + i] is the
     /// image of perm_columns[i] under generator g
     pub permutations: Vec<Col>,
+}
+
+/// Type of presolve reduction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PresolveReductionType {
+    LinearTransform,
+    FreeColSubstitution,
+    DoubletonEquation,
+    EqualityRowAddition,
+    EqualityRowAdditions,
+    SingletonRow,
+    FixedCol,
+    RedundantRow,
+    ForcingRow,
+    ForcingColumn,
+    ForcingColumnRemovedRow,
+    DuplicateRow,
+    DuplicateColumn,
+    SlackColSubstitution,
+    Unknown(i32),
+}
+
+impl PresolveReductionType {
+    fn from_int(v: HighsInt) -> Self {
+        match v {
+            0 => Self::LinearTransform,
+            1 => Self::FreeColSubstitution,
+            2 => Self::DoubletonEquation,
+            3 => Self::EqualityRowAddition,
+            4 => Self::EqualityRowAdditions,
+            5 => Self::SingletonRow,
+            6 => Self::FixedCol,
+            7 => Self::RedundantRow,
+            8 => Self::ForcingRow,
+            9 => Self::ForcingColumn,
+            10 => Self::ForcingColumnRemovedRow,
+            11 => Self::DuplicateRow,
+            12 => Self::DuplicateColumn,
+            13 => Self::SlackColSubstitution,
+            other => Self::Unknown(other as i32),
+        }
+    }
+}
+
+impl std::fmt::Display for PresolveReductionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LinearTransform => write!(f, "LinearTransform"),
+            Self::FreeColSubstitution => write!(f, "FreeColSubstitution"),
+            Self::DoubletonEquation => write!(f, "DoubletonEquation"),
+            Self::EqualityRowAddition => write!(f, "EqualityRowAddition"),
+            Self::EqualityRowAdditions => write!(f, "EqualityRowAdditions"),
+            Self::SingletonRow => write!(f, "SingletonRow"),
+            Self::FixedCol => write!(f, "FixedCol"),
+            Self::RedundantRow => write!(f, "RedundantRow"),
+            Self::ForcingRow => write!(f, "ForcingRow"),
+            Self::ForcingColumn => write!(f, "ForcingColumn"),
+            Self::ForcingColumnRemovedRow => write!(f, "ForcingColumnRemovedRow"),
+            Self::DuplicateRow => write!(f, "DuplicateRow"),
+            Self::DuplicateColumn => write!(f, "DuplicateColumn"),
+            Self::SlackColSubstitution => write!(f, "SlackColSubstitution"),
+            Self::Unknown(v) => write!(f, "Unknown({})", v),
+        }
+    }
+}
+
+/// A single presolve reduction from the postsolve stack
+#[derive(Debug, Clone, PartialEq)]
+pub struct PresolveReduction {
+    /// The type of reduction
+    pub reduction_type: PresolveReductionType,
+    /// Affected column in original space (-1 if N/A)
+    pub col: i32,
+    /// Affected row in original space (-1 if N/A)
+    pub row: i32,
+    /// Key numeric value (fix value, scale, rhs, etc.)
+    pub value: f64,
+    /// The presolve rule that produced this reduction
+    pub source: PresolveRuleType,
+}
+
+/// The presolve rule/technique that discovered a reduction
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PresolveRuleType {
+    EmptyRow,
+    SingletonRow,
+    RedundantRow,
+    EmptyCol,
+    FixedCol,
+    DominatedCol,
+    ForcingRow,
+    ForcingCol,
+    FreeColSubstitution,
+    DoubletonEquation,
+    DependentEquations,
+    DependentFreeCols,
+    Aggregator,
+    ParallelRowsAndCols,
+    Sparsify,
+    Probing,
+    Unknown(i32),
+}
+
+impl PresolveRuleType {
+    fn from_int(v: HighsInt) -> Self {
+        match v {
+            0 => Self::EmptyRow,
+            1 => Self::SingletonRow,
+            2 => Self::RedundantRow,
+            3 => Self::EmptyCol,
+            4 => Self::FixedCol,
+            5 => Self::DominatedCol,
+            6 => Self::ForcingRow,
+            7 => Self::ForcingCol,
+            8 => Self::FreeColSubstitution,
+            9 => Self::DoubletonEquation,
+            10 => Self::DependentEquations,
+            11 => Self::DependentFreeCols,
+            12 => Self::Aggregator,
+            13 => Self::ParallelRowsAndCols,
+            14 => Self::Sparsify,
+            15 => Self::Probing,
+            other => Self::Unknown(other as i32),
+        }
+    }
+}
+
+impl std::fmt::Display for PresolveRuleType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyRow => write!(f, "EmptyRow"),
+            Self::SingletonRow => write!(f, "SingletonRow"),
+            Self::RedundantRow => write!(f, "RedundantRow"),
+            Self::EmptyCol => write!(f, "EmptyCol"),
+            Self::FixedCol => write!(f, "FixedCol"),
+            Self::DominatedCol => write!(f, "DominatedCol"),
+            Self::ForcingRow => write!(f, "ForcingRow"),
+            Self::ForcingCol => write!(f, "ForcingCol"),
+            Self::FreeColSubstitution => write!(f, "FreeColSubstitution"),
+            Self::DoubletonEquation => write!(f, "DoubletonEquation"),
+            Self::DependentEquations => write!(f, "DependentEquations"),
+            Self::DependentFreeCols => write!(f, "DependentFreeCols"),
+            Self::Aggregator => write!(f, "Aggregator"),
+            Self::ParallelRowsAndCols => write!(f, "ParallelRowsAndCols"),
+            Self::Sparsify => write!(f, "Sparsify"),
+            Self::Probing => write!(f, "Probing"),
+            Self::Unknown(v) => write!(f, "Unknown({})", v),
+        }
+    }
+}
+
+impl std::fmt::Display for PresolveReduction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.reduction_type {
+            PresolveReductionType::FixedCol => {
+                write!(f, "FixedCol: col {} = {}", self.col, self.value)?;
+            }
+            PresolveReductionType::RedundantRow => {
+                write!(f, "RedundantRow: row {}", self.row)?;
+            }
+            PresolveReductionType::SingletonRow => {
+                write!(f, "SingletonRow: col {} in row {} (coef {})", self.col, self.row, self.value)?;
+            }
+            PresolveReductionType::DoubletonEquation => {
+                write!(f, "DoubletonEquation: col {} substituted via row {} (rhs {})", self.col, self.row, self.value)?;
+            }
+            PresolveReductionType::LinearTransform => {
+                write!(f, "LinearTransform: col {} (scale {})", self.col, self.value)?;
+            }
+            PresolveReductionType::FreeColSubstitution => {
+                write!(f, "FreeColSubstitution: col {} in row {} (rhs {})", self.col, self.row, self.value)?;
+            }
+            PresolveReductionType::EqualityRowAddition => {
+                write!(f, "EqualityRowAddition: row {} (scale {})", self.row, self.value)?;
+            }
+            PresolveReductionType::EqualityRowAdditions => {
+                write!(f, "EqualityRowAdditions: eq row {}", self.row)?;
+            }
+            PresolveReductionType::ForcingRow => {
+                write!(f, "ForcingRow: row {} (side {})", self.row, self.value)?;
+            }
+            PresolveReductionType::ForcingColumn => {
+                write!(f, "ForcingColumn: col {} (bound {})", self.col, self.value)?;
+            }
+            PresolveReductionType::ForcingColumnRemovedRow => {
+                write!(f, "ForcingColumnRemovedRow: row {} (rhs {})", self.row, self.value)?;
+            }
+            PresolveReductionType::DuplicateRow => {
+                write!(f, "DuplicateRow: row {} (scale {})", self.row, self.value)?;
+            }
+            PresolveReductionType::DuplicateColumn => {
+                write!(f, "DuplicateColumn: col {} (scale {})", self.col, self.value)?;
+            }
+            PresolveReductionType::SlackColSubstitution => {
+                write!(f, "SlackColSubstitution: col {} in row {} (rhs {})", self.col, self.row, self.value)?;
+            }
+            PresolveReductionType::Unknown(v) => {
+                write!(f, "Unknown({}): col {} row {} value {}", v, self.col, self.row, self.value)?;
+            }
+        }
+        write!(f, " [{}]", self.source)
+    }
 }
 
 #[allow(non_upper_case_globals)]
@@ -2200,5 +2519,45 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_presolve_reductions() {
+        // Build a small MIP that presolve will reduce
+        let mut pb = RowProblem::default();
+        // x0 in [0, 10], x1 in [0, 10], x2 fixed at 5
+        let x0 = pb.add_column(1., 0.0..=10.0);
+        let x1 = pb.add_column(1., 0.0..=10.0);
+        let x2 = pb.add_column(0., 5.0..=5.0); // fixed variable
+
+        // x0 + x1 <= 8
+        pb.add_row(..=8.0, &[(x0, 1.0), (x1, 1.0)]);
+        // x2 = 5 (redundant with bounds, but adds a row)
+        pb.add_row(5.0..=5.0, &[(x2, 1.0)]);
+
+        let mut model = pb.optimise(Sense::Minimise);
+        model.set_option("output_flag", false);
+
+        model.presolve();
+
+        let n = model.num_presolve_reductions();
+        assert!(n > 0, "presolve should produce at least one reduction");
+
+        let reductions = model.get_presolve_reductions().unwrap();
+        assert_eq!(reductions.len(), n);
+
+        // Verify all reductions have sensible fields
+        for r in &reductions {
+            // col and row should be -1 or a valid index
+            assert!(r.col >= -1);
+            assert!(r.row >= -1);
+            // At least one of col/row should be set
+            assert!(r.col >= 0 || r.row >= 0,
+                    "reduction {} should affect at least a col or row", r);
+        }
+
+        // Check Display works
+        let display = format!("{}", &reductions[0]);
+        assert!(!display.is_empty());
     }
 }
