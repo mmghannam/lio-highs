@@ -590,45 +590,30 @@ impl Model {
         }
     }
 
-    /// Run crossover to recover a basic feasible solution from an IPM solution.
+    /// Set a primal (and optionally dual) solution as a starting point for the next solve.
     ///
-    /// Takes primal column values and optional dual values (column duals, row duals).
-    /// On success, consumes the model and returns a `SolvedModel` with a valid simplex basis.
-    pub fn crossover(
-        mut self,
-        col_value: &[f64],
+    /// Pass `None` for any component that should not be set.
+    pub fn set_solution(
+        &mut self,
+        col_value: Option<&[f64]>,
+        row_value: Option<&[f64]>,
         col_dual: Option<&[f64]>,
         row_dual: Option<&[f64]>,
-    ) -> Result<SolvedModel, (HighsStatus, Model)> {
-        let num_col = self.num_cols();
-        let num_row = self.num_rows();
-        assert_eq!(col_value.len(), num_col);
-        if let Some(cd) = col_dual {
-            assert_eq!(cd.len(), num_col);
-        }
-        if let Some(rd) = row_dual {
-            assert_eq!(rd.len(), num_row);
-        }
+    ) {
+        let col_value_ptr = col_value.map(|v| v.as_ptr()).unwrap_or(std::ptr::null());
+        let row_value_ptr = row_value.map(|v| v.as_ptr()).unwrap_or(std::ptr::null());
+        let col_dual_ptr = col_dual.map(|v| v.as_ptr()).unwrap_or(std::ptr::null());
+        let row_dual_ptr = row_dual.map(|v| v.as_ptr()).unwrap_or(std::ptr::null());
 
-        let col_dual_ptr = col_dual
-            .map(|cd| cd.as_ptr())
-            .unwrap_or(std::ptr::null());
-        let row_dual_ptr = row_dual
-            .map(|rd| rd.as_ptr())
-            .unwrap_or(std::ptr::null());
-
-        match unsafe {
-            highs_call!(Highs_crossover(
+        unsafe {
+            highs_call!(Highs_setSolution(
                 self.highs.mut_ptr(),
-                num_col as HighsInt,
-                num_row as HighsInt,
-                col_value.as_ptr(),
+                col_value_ptr,
+                row_value_ptr,
                 col_dual_ptr,
                 row_dual_ptr
             ))
-        } {
-            Ok(_) => Ok(SolvedModel { highs: self.highs }),
-            Err(status) => Err((status, self)),
+            .expect("Failed to set solution in HiGHS");
         }
     }
 
@@ -1940,6 +1925,27 @@ mod test {
         let solution = solved.get_solution();
         assert_eq!(solution.columns(), vec![0., 6., 0.5]);
         assert_eq!(solution.rows(), vec![6., 7.]);
+    }
+
+    #[test]
+    fn test_set_solution_and_solve() {
+        // min x + y s.t. x + y >= 1, x,y in [0,10]
+        let mut pb = RowProblem::default();
+        let x = pb.add_column(1., 0.0..=10.0);
+        let y = pb.add_column(1., 0.0..=10.0);
+        pb.add_row(1.0.., &[(x, 1.0), (y, 1.0)]);
+
+        let mut model = pb.optimise(Sense::Minimise);
+        model.set_option("output_flag", false);
+
+        // Set an IPM-like interior point as starting solution
+        let col_value = vec![0.5, 0.5];
+        model.set_solution(Some(&col_value), None, None, None);
+
+        let solved = model.solve();
+        assert_eq!(solved.status(), HighsModelStatus::Optimal);
+        let obj = solved.obj_val();
+        assert!((obj - 1.0).abs() < 1e-6, "Expected obj ~1.0, got {}", obj);
     }
 
     #[test]
