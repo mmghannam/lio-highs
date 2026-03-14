@@ -590,6 +590,48 @@ impl Model {
         }
     }
 
+    /// Run crossover to recover a basic feasible solution from an IPM solution.
+    ///
+    /// Takes primal column values and optional dual values (column duals, row duals).
+    /// On success, consumes the model and returns a `SolvedModel` with a valid simplex basis.
+    pub fn crossover(
+        mut self,
+        col_value: &[f64],
+        col_dual: Option<&[f64]>,
+        row_dual: Option<&[f64]>,
+    ) -> Result<SolvedModel, (HighsStatus, Model)> {
+        let num_col = self.num_cols();
+        let num_row = self.num_rows();
+        assert_eq!(col_value.len(), num_col);
+        if let Some(cd) = col_dual {
+            assert_eq!(cd.len(), num_col);
+        }
+        if let Some(rd) = row_dual {
+            assert_eq!(rd.len(), num_row);
+        }
+
+        let col_dual_ptr = col_dual
+            .map(|cd| cd.as_ptr())
+            .unwrap_or(std::ptr::null());
+        let row_dual_ptr = row_dual
+            .map(|rd| rd.as_ptr())
+            .unwrap_or(std::ptr::null());
+
+        match unsafe {
+            highs_call!(Highs_crossover(
+                self.highs.mut_ptr(),
+                num_col as HighsInt,
+                num_row as HighsInt,
+                col_value.as_ptr(),
+                col_dual_ptr,
+                row_dual_ptr
+            ))
+        } {
+            Ok(_) => Ok(SolvedModel { highs: self.highs }),
+            Err(status) => Err((status, self)),
+        }
+    }
+
     /// Find the optimal value for the problem, panic if the problem is incoherent
     pub fn solve(self) -> SolvedModel {
         self.try_solve()
