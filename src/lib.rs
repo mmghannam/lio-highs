@@ -32,6 +32,7 @@ use std::ops::{Bound, Index, RangeBounds};
 use std::os::raw::c_int;
 use std::ptr::null_mut;
 
+pub use ffi::HighsInt;
 pub use matrix_col::{ColMatrix, Row};
 pub use matrix_row::{Col, RowMatrix};
 pub use status::{HighsModelStatus, HighsStatus};
@@ -1333,29 +1334,15 @@ impl<H: HasHighsPtr> LikeModel for H {
         HighsStatus,
     > {
         let num_rows = (to_row - from_row + 1) as usize;
+        // Upper bound on nonzeros: each row can have at most num_cols entries
+        let max_nz = self.num_cols() * num_rows;
 
         let mut lower = vec![0.0; num_rows];
         let mut upper = vec![0.0; num_rows];
         let mut num_nz = 0i32;
-
-        unsafe {
-            highs_call!(Highs_getRowsByRange(
-                self.highs_ptr().unsafe_mut_ptr(),
-                from_row as c_int,
-                to_row as c_int,
-                &mut (num_rows as c_int),
-                lower.as_mut_ptr(),
-                upper.as_mut_ptr(),
-                &mut num_nz,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut()
-            ))?;
-        }
-
         let mut matrix_start = vec![0; num_rows];
-        let mut matrix_index = vec![0; num_nz as usize];
-        let mut matrix_value = vec![0.0; num_nz as usize];
+        let mut matrix_index = vec![0; max_nz];
+        let mut matrix_value = vec![0.0; max_nz];
         let mut num_rows_out = num_rows as c_int;
 
         unsafe {
@@ -1372,6 +1359,9 @@ impl<H: HasHighsPtr> LikeModel for H {
                 matrix_value.as_mut_ptr()
             ))?;
         }
+
+        matrix_index.truncate(num_nz as usize);
+        matrix_value.truncate(num_nz as usize);
 
         Ok((
             lower,
@@ -1691,6 +1681,143 @@ impl SolvedModel {
         col_index = col_index.into_iter().take(num_nonzeros as usize).collect();
 
         (col_vector, col_index)
+    }
+
+    /// Fill an existing `Solution` with the current solution data, reusing its buffers.
+    pub fn fill_solution(&self, sol: &mut Solution) {
+        sol.resize(self.num_cols(), self.num_rows());
+        unsafe {
+            Highs_getSolution(
+                self.highs.unsafe_mut_ptr(),
+                sol.colvalue.as_mut_ptr(),
+                sol.coldual.as_mut_ptr(),
+                sol.rowvalue.as_mut_ptr(),
+                sol.rowdual.as_mut_ptr(),
+            );
+        }
+    }
+
+    /// Fill only primal column values into the provided buffer.
+    pub fn fill_col_values(&self, buf: &mut Vec<f64>) {
+        buf.resize(self.num_cols(), 0.0);
+        unsafe {
+            Highs_getSolution(
+                self.highs.unsafe_mut_ptr(),
+                buf.as_mut_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Fill only reduced costs (column duals) into the provided buffer.
+    pub fn fill_col_duals(&self, buf: &mut Vec<f64>) {
+        buf.resize(self.num_cols(), 0.0);
+        unsafe {
+            Highs_getSolution(
+                self.highs.unsafe_mut_ptr(),
+                std::ptr::null_mut(),
+                buf.as_mut_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    /// Get basis inverse row into caller-provided buffers.
+    pub fn get_basis_inverse_row_into(
+        &self,
+        row: Row,
+        dense: &mut Vec<f64>,
+        index: &mut Vec<HighsInt>,
+    ) {
+        dense.resize(self.num_rows(), 0.0);
+        index.resize(self.num_rows(), 0);
+        let mut num_nz: HighsInt = 0;
+        unsafe {
+            highs_call! {
+                Highs_getBasisInverseRow(
+                    self.highs.unsafe_mut_ptr(),
+                    row.try_into().unwrap(),
+                    dense.as_mut_ptr(),
+                    &mut num_nz,
+                    index.as_mut_ptr()
+                )
+            }
+            .expect("Error in get_basis_inverse_row_into");
+        }
+        index.truncate(num_nz as usize);
+    }
+
+    /// Get reduced row (e_i * B^{-1} * A) into caller-provided buffers.
+    pub fn get_reduced_row_into(
+        &self,
+        row: Row,
+        dense: &mut Vec<f64>,
+        index: &mut Vec<HighsInt>,
+    ) {
+        dense.resize(self.num_cols(), 0.0);
+        index.resize(self.num_cols(), 0);
+        let mut num_nz: HighsInt = 0;
+        unsafe {
+            highs_call! {
+                Highs_getReducedRow(
+                    self.highs.unsafe_mut_ptr(),
+                    row.try_into().unwrap(),
+                    dense.as_mut_ptr(),
+                    &mut num_nz,
+                    index.as_mut_ptr()
+                )
+            }
+            .expect("Error in get_reduced_row_into");
+        }
+        index.truncate(num_nz as usize);
+    }
+
+    /// Solve B * x = b into caller-provided buffers. `b` is modified in place.
+    pub fn get_basis_sol_into(
+        &self,
+        b: &mut Vec<f64>,
+        x: &mut Vec<f64>,
+        index: &mut Vec<HighsInt>,
+    ) {
+        x.resize(self.num_rows(), 0.0);
+        index.resize(self.num_rows(), 0);
+        let mut num_nz: HighsInt = 0;
+        unsafe {
+            highs_call! {
+                Highs_getBasisSolve(
+                    self.highs.unsafe_mut_ptr(),
+                    b.as_mut_ptr(),
+                    x.as_mut_ptr(),
+                    &mut num_nz,
+                    index.as_mut_ptr()
+                )
+            }
+            .expect("Error in get_basis_sol_into");
+        }
+        index.truncate(num_nz as usize);
+    }
+
+    /// Get raw basis status into caller-provided buffers.
+    pub fn get_basis_status_raw(
+        &self,
+        col_status: &mut Vec<HighsInt>,
+        row_status: &mut Vec<HighsInt>,
+    ) {
+        col_status.resize(self.num_cols(), kHighsBasisStatusZero);
+        row_status.resize(self.num_rows(), kHighsBasisStatusZero);
+        unsafe {
+            highs_call! {
+                Highs_getBasis(
+                    self.highs.unsafe_mut_ptr(),
+                    col_status.as_mut_ptr(),
+                    row_status.as_mut_ptr()
+                )
+            }
+            .expect("Error in get_basis_status_raw");
+        }
     }
 
     /// Gets the dual ray (Farkas proof) for an infeasible LP.
@@ -2028,7 +2155,7 @@ impl HasHighsPtr for SolvedModel {
 }
 
 /// Concrete values of the solution
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Solution {
     colvalue: Vec<f64>,
     coldual: Vec<f64>,
@@ -2048,6 +2175,15 @@ pub struct RowData {
 }
 
 impl Solution {
+    /// Resize all internal buffers to fit the given dimensions.
+    /// If capacity is already sufficient, this is a no-op (no reallocation).
+    pub fn resize(&mut self, cols: usize, rows: usize) {
+        self.colvalue.resize(cols, 0.0);
+        self.coldual.resize(cols, 0.0);
+        self.rowvalue.resize(rows, 0.0);
+        self.rowdual.resize(rows, 0.0);
+    }
+
     /// The optimal values for each variables (in the order they were added)
     pub fn columns(&self) -> &[f64] {
         &self.colvalue
