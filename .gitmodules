@@ -1,3 +1,0 @@
-[submodule "HiGHS"]
-	path = HiGHS
-	url = https://github.com/mmghannam/HiGHS-1.git
