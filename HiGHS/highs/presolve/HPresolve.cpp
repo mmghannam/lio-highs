@@ -5394,28 +5394,6 @@ HighsModelStatus HPresolve::run(HighsPostsolveStack& postsolve_stack) {
   if (!mipsolver && options->use_implied_bounds_from_presolve)
     setRelaxedImpliedBounds();
 
-  // Re-probe previously probed variables so that implication data is
-  // available for the presolved model.  rebuild() during shrinkProblem
-  // cleared the cached data; re-probing generates it fresh with valid
-  // bounds.  numProbes was correctly remapped by shrinkProblem.
-  // This must happen after toCSC() so the constraint matrix is available.
-  // Clear cutpool propagation first — the cutpool's activity arrays are
-  // stale after shrinkProblem and would cause invalid memory access
-  // during domain propagation triggered by probing.
-  if (mipsolver != nullptr) {
-    auto& globaldomain = mipsolver->mipdata_->domain;
-    globaldomain.clearCutpools();
-    auto& implications = mipsolver->mipdata_->implications;
-    for (HighsInt col = 0; col < model->num_col_; col++) {
-      if (numProbes[col] > 0 && globaldomain.isBinary(col) &&
-          !globaldomain.isFixed(col)) {
-        HighsInt numReductions = 0;
-        implications.runProbing(col, numReductions);
-        if (globaldomain.infeasible()) break;
-      }
-    }
-  }
-
   assert(presolve_status_ != HighsPresolveStatus::kNotSet);
   return HighsModelStatus::kNotset;
 }
