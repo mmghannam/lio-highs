@@ -23,6 +23,8 @@
 //! ```
 
 pub mod ffi;
+#[cfg(feature = "rucks")]
+pub mod rucks;
 
 use ffi::*;
 use std::convert::{TryFrom, TryInto};

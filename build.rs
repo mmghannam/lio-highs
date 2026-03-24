@@ -15,9 +15,64 @@ fn generate_bindings(include_path: &std::path::Path) {
         .expect("Couldn't write bindings!");
 }
 
+/// Copy a directory recursively (used to create an instrumented copy of HiGHS).
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
+    std::fs::create_dir_all(dst).expect("failed to create dir");
+    for entry in std::fs::read_dir(src).expect("failed to read dir") {
+        let entry = entry.expect("failed to read entry");
+        let ty = entry.file_type().expect("failed to get file type");
+        let dest = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest);
+        } else {
+            std::fs::copy(entry.path(), &dest).expect("failed to copy file");
+        }
+    }
+}
+
 fn main() {
     use cmake::Config;
-    let mut dst = Config::new("HiGHS");
+
+    // When rucks feature is enabled, instrument a copy of HiGHS source
+    // and build from the instrumented copy instead of the original.
+    let highs_src = if cfg!(feature = "rucks") {
+        let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+        let instrumented = out_dir.join("HiGHS_rucks");
+
+        // Copy HiGHS source to a working directory
+        if instrumented.exists() {
+            std::fs::remove_dir_all(&instrumented).expect("failed to clean instrumented dir");
+        }
+        copy_dir_recursive(std::path::Path::new("HiGHS"), &instrumented);
+
+        // Run `rucks init` to generate runtime files
+        let status = std::process::Command::new("rucks")
+            .args(["init", &instrumented.to_string_lossy()])
+            .status()
+            .expect("failed to run `rucks init` — is rucks installed?");
+        assert!(status.success(), "rucks init failed");
+
+        // Run `rucks inst --inplace` on the HiGHS source
+        let highs_src_dir = instrumented.join("highs").join("src");
+        let status = std::process::Command::new("rucks")
+            .args(["inst", "--inplace", &highs_src_dir.to_string_lossy()])
+            .status()
+            .expect("failed to run `rucks inst`");
+        assert!(status.success(), "rucks inst failed");
+
+        // Compile rucks_rt.c as a static library
+        cc::Build::new()
+            .file(instrumented.join("rucks_rt.c"))
+            .opt_level(2)
+            .flag("-fPIC")
+            .compile("rucks_rt");
+
+        instrumented
+    } else {
+        PathBuf::from("HiGHS")
+    };
+
+    let mut dst = Config::new(&highs_src);
 
     if cfg!(feature = "ninja") {
         dst.generator("Ninja");
@@ -61,6 +116,18 @@ fn main() {
             .unwrap_or_else(|_| "/opt/homebrew/opt/llvm/bin".to_string());
         dst.define("CMAKE_C_COMPILER", format!("{llvm_bin}/clang"));
         dst.define("CMAKE_CXX_COMPILER", format!("{llvm_bin}/clang++"));
+    }
+
+    // When rucks is enabled, allow undefined rucks symbols during HiGHS linking —
+    // they are resolved by the rucks_rt static lib linked into the final binary.
+    if cfg!(feature = "rucks") {
+        if cfg!(target_os = "macos") {
+            dst.define("CMAKE_EXE_LINKER_FLAGS", "-Wl,-undefined,dynamic_lookup");
+            dst.define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-undefined,dynamic_lookup");
+        } else {
+            dst.define("CMAKE_EXE_LINKER_FLAGS", "-Wl,--allow-shlib-undefined");
+            dst.define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,--allow-shlib-undefined");
+        }
     }
 
     let dst = dst
