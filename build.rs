@@ -52,10 +52,12 @@ fn main() {
             .expect("failed to run `rucks init` — is rucks installed?");
         assert!(status.success(), "rucks init failed");
 
-        // Run `rucks inst --inplace` on the HiGHS source
-        let highs_src_dir = instrumented.join("highs").join("src");
+        // Run `rucks inst --inplace --no-include` on the HiGHS source.
+        // We skip the auto-inserted #include because rucks_rt.h lives outside
+        // the source tree; instead we force-include it via compiler flags below.
+        let highs_src_dir = instrumented.join("highs");
         let status = std::process::Command::new("rucks")
-            .args(["inst", "--inplace", &highs_src_dir.to_string_lossy()])
+            .args(["inst", "--inplace", "--no-include", &highs_src_dir.to_string_lossy()])
             .status()
             .expect("failed to run `rucks inst`");
         assert!(status.success(), "rucks inst failed");
@@ -118,9 +120,21 @@ fn main() {
         dst.define("CMAKE_CXX_COMPILER", format!("{llvm_bin}/clang++"));
     }
 
-    // When rucks is enabled, allow undefined rucks symbols during HiGHS linking —
-    // they are resolved by the rucks_rt static lib linked into the final binary.
+    // When rucks is enabled, force-include rucks_rt.h via compiler flags and
+    // allow undefined rucks symbols during HiGHS linking (resolved by rucks_rt static lib).
     if cfg!(feature = "rucks") {
+        let rucks_header = highs_src.canonicalize()
+            .expect("failed to canonicalize highs_src")
+            .join("rucks_rt.h");
+        let include_flag = format!("-include {}", rucks_header.display());
+        // Force-include rucks_rt.h in every translation unit via both base and
+        // release flags (cmake crate may override CMAKE_C_FLAGS for the C compiler).
+        dst.define("CMAKE_C_FLAGS", &include_flag);
+        dst.define("CMAKE_CXX_FLAGS", &include_flag);
+        dst.define("CMAKE_C_FLAGS_RELEASE",
+                   format!("-O3 -DNDEBUG {include_flag}"));
+        dst.define("CMAKE_CXX_FLAGS_RELEASE",
+                   format!("-O3 -DNDEBUG {include_flag}"));
         if cfg!(target_os = "macos") {
             dst.define("CMAKE_EXE_LINKER_FLAGS", "-Wl,-undefined,dynamic_lookup");
             dst.define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-undefined,dynamic_lookup");

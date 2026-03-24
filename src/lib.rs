@@ -2660,6 +2660,26 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "rucks")]
+    fn test_rucks_counters() {
+        crate::rucks::reset();
+        assert_eq!(crate::rucks::total_count(), 0);
+
+        // Solve a small LP — HiGHS should do measurable work
+        let mut pb = RowProblem::default();
+        let x = pb.add_column(1., 0..);
+        let y = pb.add_column(2., 0..);
+        pb.add_row(..=6, &[(x, 3.), (y, 1.)]);
+        pb.add_row(..=7, &[(y, 1.)]);
+        let solved = pb.optimise(Sense::Maximise).solve();
+        assert_eq!(solved.status(), HighsModelStatus::Optimal);
+
+        let total = crate::rucks::total_count();
+        assert!(total > 0, "expected rucks counters > 0 after solve, got {total}");
+        assert!(crate::rucks::func_count() > 0, "expected func_count > 0");
+    }
+
+    #[test]
     fn test_presolve_reductions() {
         // Build a small MIP that presolve will reduce
         let mut pb = RowProblem::default();
