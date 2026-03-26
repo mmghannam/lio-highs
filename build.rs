@@ -62,12 +62,8 @@ fn main() {
             .expect("failed to run `rucks inst`");
         assert!(status.success(), "rucks inst failed");
 
-        // Compile rucks_rt.c as a static library
-        cc::Build::new()
-            .file(instrumented.join("rucks_rt.c"))
-            .opt_level(2)
-            .flag("-fPIC")
-            .compile("rucks_rt");
+        // rucks now uses a header-only runtime (inline TLS) by default.
+        // No need to compile rucks_rt.c — the counters are in rucks_rt.h.
 
         instrumented
     } else {
@@ -120,8 +116,8 @@ fn main() {
         dst.define("CMAKE_CXX_COMPILER", format!("{llvm_bin}/clang++"));
     }
 
-    // When rucks is enabled, force-include rucks_rt.h via compiler flags and
-    // allow undefined rucks symbols during HiGHS linking (resolved by rucks_rt static lib).
+    // When rucks is enabled, force-include rucks_rt.h via compiler flags.
+    // The header-only runtime defines counters inline (TLS), so no separate linking needed.
     if cfg!(feature = "rucks") {
         let rucks_header = highs_src.canonicalize()
             .expect("failed to canonicalize highs_src")
