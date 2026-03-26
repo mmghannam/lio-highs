@@ -45,9 +45,11 @@ fn main() {
         }
         copy_dir_recursive(std::path::Path::new("HiGHS"), &instrumented);
 
-        // Run `rucks init` to generate runtime files
+        // Run `rucks init --shared` to generate runtime files.
+        // Shared mode generates rucks_rt.c with actual symbols needed for
+        // cross-language linking (Rust extern "C" calls into these).
         let status = std::process::Command::new("rucks")
-            .args(["init", &instrumented.to_string_lossy()])
+            .args(["init", "--shared", &instrumented.to_string_lossy()])
             .status()
             .expect("failed to run `rucks init` — is rucks installed?");
         assert!(status.success(), "rucks init failed");
@@ -62,8 +64,12 @@ fn main() {
             .expect("failed to run `rucks inst`");
         assert!(status.success(), "rucks inst failed");
 
-        // rucks now uses a header-only runtime (inline TLS) by default.
-        // No need to compile rucks_rt.c — the counters are in rucks_rt.h.
+        // Compile rucks_rt.c as a static library (provides symbols for Rust FFI)
+        cc::Build::new()
+            .file(instrumented.join("rucks_rt.c"))
+            .opt_level(2)
+            .flag("-fPIC")
+            .compile("rucks_rt");
 
         instrumented
     } else {
@@ -116,8 +122,8 @@ fn main() {
         dst.define("CMAKE_CXX_COMPILER", format!("{llvm_bin}/clang++"));
     }
 
-    // When rucks is enabled, force-include rucks_rt.h via compiler flags.
-    // The header-only runtime defines counters inline (TLS), so no separate linking needed.
+    // When rucks is enabled, force-include rucks_rt.h via compiler flags and
+    // allow undefined rucks symbols during HiGHS linking (resolved by rucks_rt static lib).
     if cfg!(feature = "rucks") {
         let rucks_header = highs_src.canonicalize()
             .expect("failed to canonicalize highs_src")
