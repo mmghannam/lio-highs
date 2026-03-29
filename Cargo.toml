@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "highs-wasm"]
+
 [package]
 name = "lio-highs"
 version = "0.1.0"

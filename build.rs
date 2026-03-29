@@ -2,10 +2,22 @@ use std::env;
 use std::path::PathBuf;
 
 fn generate_bindings(include_path: &std::path::Path) {
-    let c_bindings = bindgen::Builder::default()
+    let target = env::var("TARGET").unwrap();
+    let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", include_path.to_string_lossy()))
         .header("wrapper.h")
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()));
+
+    if target.contains("emscripten") {
+        // Use host target for clang header resolution but disable layout
+        // tests since pointer sizes differ between host (64-bit) and wasm32.
+        let host = env::var("HOST").unwrap();
+        builder = builder
+            .clang_arg(format!("--target={}", host))
+            .layout_tests(false);
+    }
+
+    let c_bindings = builder
         .generate()
         .expect("Unable to generate bindings");
 
@@ -76,7 +88,25 @@ fn main() {
         PathBuf::from("HiGHS")
     };
 
+    let target = env::var("TARGET").unwrap();
+    let is_emscripten = target.contains("emscripten");
+
     let mut dst = Config::new(&highs_src);
+
+    if is_emscripten {
+        let emsdk = env::var("EMSDK").expect("EMSDK env var must be set for emscripten builds");
+        let toolchain = format!(
+            "{}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+            emsdk
+        );
+        dst.define("CMAKE_TOOLCHAIN_FILE", &toolchain);
+        dst.define("HIGHS_NO_DEFAULT_THREADS", "ON");
+        dst.define("CMAKE_CROSSCOMPILING", "TRUE");
+        // HiGHS uses C++ exceptions. Use WASM native exception handling
+        // to match Rust's emscripten target which links with -fwasm-exceptions.
+        dst.define("CMAKE_CXX_FLAGS", "-fwasm-exceptions");
+        dst.define("CMAKE_C_FLAGS", "-fwasm-exceptions");
+    }
 
     if cfg!(feature = "ninja") {
         dst.generator("Ninja");
@@ -165,11 +195,12 @@ fn main() {
         println!("cargo:rustc-link-lib=z");
     }
 
-    let target = env::var("TARGET").unwrap();
     let apple = target.contains("apple");
     let linux = target.contains("linux");
     let mingw = target.contains("pc-windows-gnu");
-    if apple {
+    if is_emscripten {
+        // Emscripten handles C++ stdlib linking automatically
+    } else if apple {
         if cfg!(feature = "inst-count") {
             // When inst-count is active, HiGHS was compiled with Homebrew's clang
             // which uses a newer libc++. Link against Homebrew's libc++ to match.

@@ -1,2 +1,5 @@
 /target
 Cargo.lock
+highs-wasm/dist/
+highs-wasm/demo/*.wasm
+highs-wasm/demo/highs_wasm.js
