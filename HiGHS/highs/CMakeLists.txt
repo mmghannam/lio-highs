@@ -380,6 +380,26 @@ else()
         COMMENT "Copying to output directory")
   endif()
 
+  # lio-highs sets LIO_RUCKS=ON to instrument every HiGHS TU with rucks work
+  # counters under bucket "highs", so LP iters are countable separately from
+  # lio's own loop/func counters. CMAKE_PREFIX_PATH is set in lio-highs/build.rs
+  # to the rucks install root (alongside the rucks binary) for find_package.
+  if(LIO_RUCKS)
+    find_package(Rucks REQUIRED)
+    rucks_instrument(
+      TARGET highs
+      LANGUAGE CXX
+      BUCKET highs
+      EXPORT_SET highs-targets
+    )
+    # rucks_core is a PRIVATE static-lib dep of highs. cpp-highs.cmake later
+    # calls `export(TARGETS highs FILE ...)`, which refuses to export highs
+    # unless its PRIVATE static deps are also in some build-tree export. The
+    # EXPORT_SET arg above only handles the install-tree side; mirror it with
+    # an in-tree export here so the configure step succeeds.
+    export(TARGETS rucks_core FILE "${HIGHS_BINARY_DIR}/rucks-targets.cmake")
+  endif()
+
 endif()
 
 if(FORTRAN_FOUND)

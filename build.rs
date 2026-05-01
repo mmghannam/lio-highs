@@ -27,71 +27,30 @@ fn generate_bindings(include_path: &std::path::Path) {
         .expect("Couldn't write bindings!");
 }
 
-/// Copy a directory recursively (used to create an instrumented copy of HiGHS).
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) {
-    std::fs::create_dir_all(dst).expect("failed to create dir");
-    for entry in std::fs::read_dir(src).expect("failed to read dir") {
-        let entry = entry.expect("failed to read entry");
-        let ty = entry.file_type().expect("failed to get file type");
-        let dest = dst.join(entry.file_name());
-        if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &dest);
-        } else {
-            std::fs::copy(entry.path(), &dest).expect("failed to copy file");
-        }
+/// Find the rucks install prefix by resolving the rucks binary on PATH.
+/// RucksConfig.cmake lives at <prefix>/share/cmake/Rucks/ alongside the
+/// binary at <prefix>/bin/rucks; we hand <prefix> to cmake via
+/// CMAKE_PREFIX_PATH so HiGHS's find_package(Rucks) picks it up.
+fn locate_rucks_prefix() -> Option<PathBuf> {
+    let output = std::process::Command::new("which")
+        .arg("rucks")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
     }
+    let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    let resolved = std::fs::canonicalize(&path).ok()?;
+    resolved.parent()?.parent().map(PathBuf::from)
 }
 
 fn main() {
     use cmake::Config;
 
-    // When rucks feature is enabled, instrument a copy of HiGHS source
-    // and build from the instrumented copy instead of the original.
-    let highs_src = if cfg!(feature = "rucks") {
-        let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-        let instrumented = out_dir.join("HiGHS_rucks");
-
-        // Copy HiGHS source to a working directory
-        if instrumented.exists() {
-            std::fs::remove_dir_all(&instrumented).expect("failed to clean instrumented dir");
-        }
-        copy_dir_recursive(std::path::Path::new("HiGHS"), &instrumented);
-
-        // Run `rucks init --shared` to generate runtime files.
-        // Shared mode generates rucks_rt.c with actual symbols needed for
-        // cross-language linking (Rust extern "C" calls into these).
-        let status = std::process::Command::new("rucks")
-            .args(["init", "--shared", &instrumented.to_string_lossy()])
-            .status()
-            .expect("failed to run `rucks init` — is rucks installed?");
-        assert!(status.success(), "rucks init failed");
-
-        // Run `rucks inst --inplace --no-include` on the HiGHS source.
-        // We skip the auto-inserted #include because rucks_rt.h lives outside
-        // the source tree; instead we force-include it via compiler flags below.
-        let highs_src_dir = instrumented.join("highs");
-        let status = std::process::Command::new("rucks")
-            .args(["inst", "--inplace", "--no-include", &highs_src_dir.to_string_lossy()])
-            .status()
-            .expect("failed to run `rucks inst`");
-        assert!(status.success(), "rucks inst failed");
-
-        // Compile rucks_rt.c as a static library (provides symbols for Rust FFI)
-        cc::Build::new()
-            .file(instrumented.join("rucks_rt.c"))
-            .opt_level(2)
-            .flag("-fPIC")
-            .compile("rucks_rt");
-
-        instrumented
-    } else {
-        PathBuf::from("HiGHS")
-    };
-
     let target = env::var("TARGET").unwrap();
     let is_emscripten = target.contains("emscripten");
 
-    let mut dst = Config::new(&highs_src);
+    let mut dst = Config::new("HiGHS");
 
     if is_emscripten {
         let emsdk = env::var("EMSDK").expect("EMSDK env var must be set for emscripten builds");
@@ -152,28 +111,15 @@ fn main() {
         dst.define("CMAKE_CXX_COMPILER", format!("{llvm_bin}/clang++"));
     }
 
-    // When rucks is enabled, force-include rucks_rt.h via compiler flags and
-    // allow undefined rucks symbols during HiGHS linking (resolved by rucks_rt static lib).
+    // Hand HiGHS's CMakeLists.txt the rucks install root + the LIO_RUCKS flag
+    // it gates rucks_instrument(TARGET highs BUCKET highs) on. The CMake module
+    // copies sources, runs `rucks inst`, builds rucks_rt_highs.c + rucks_core.c,
+    // and force-includes the bucket header — no manual orchestration needed here.
     if cfg!(feature = "rucks") {
-        let rucks_header = highs_src.canonicalize()
-            .expect("failed to canonicalize highs_src")
-            .join("rucks_rt.h");
-        let include_flag = format!("-include {}", rucks_header.display());
-        // Force-include rucks_rt.h in every translation unit via both base and
-        // release flags (cmake crate may override CMAKE_C_FLAGS for the C compiler).
-        dst.define("CMAKE_C_FLAGS", &include_flag);
-        dst.define("CMAKE_CXX_FLAGS", &include_flag);
-        dst.define("CMAKE_C_FLAGS_RELEASE",
-                   format!("-O3 -DNDEBUG {include_flag}"));
-        dst.define("CMAKE_CXX_FLAGS_RELEASE",
-                   format!("-O3 -DNDEBUG {include_flag}"));
-        if cfg!(target_os = "macos") {
-            dst.define("CMAKE_EXE_LINKER_FLAGS", "-Wl,-undefined,dynamic_lookup");
-            dst.define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,-undefined,dynamic_lookup");
-        } else {
-            dst.define("CMAKE_EXE_LINKER_FLAGS", "-Wl,--allow-shlib-undefined");
-            dst.define("CMAKE_SHARED_LINKER_FLAGS", "-Wl,--allow-shlib-undefined");
-        }
+        let prefix = locate_rucks_prefix()
+            .expect("`rucks` binary not on PATH; install rucks first");
+        dst.define("LIO_RUCKS", "ON");
+        dst.define("CMAKE_PREFIX_PATH", &prefix);
     }
 
     let dst = dst
@@ -190,6 +136,13 @@ fn main() {
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
     println!("cargo:rustc-link-search=native={}/lib64", dst.display());
     println!("cargo:rustc-link-lib=static=highs");
+
+    if cfg!(feature = "rucks") {
+        // rucks_core hosts the bucket registry that rucks_rt_highs.c registers
+        // into. CMake builds it as a sibling static lib of libhighs.a, installed
+        // alongside via the EXPORT_SET highs-targets handoff.
+        println!("cargo:rustc-link-lib=static=rucks_core");
+    }
 
     if cfg!(feature = "libz") {
         println!("cargo:rustc-link-lib=z");
