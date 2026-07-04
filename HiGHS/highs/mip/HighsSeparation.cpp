@@ -28,9 +28,12 @@ HighsSeparation::HighsSeparation(const HighsMipSolver& mipsolver) {
         mipsolver.analysis_.getSepaClockIndex(kImplboundSepaString);
     cliqueClock = mipsolver.analysis_.getSepaClockIndex(kCliqueSepaString);
   }
-  separators.emplace_back(new HighsTableauSeparator(mipsolver));
-  separators.emplace_back(new HighsPathSeparator(mipsolver));
-  separators.emplace_back(new HighsModkSeparator(mipsolver));
+  if (mipsolver.options_mip_->mip_separation_run_tableau)
+    separators.emplace_back(new HighsTableauSeparator(mipsolver));
+  if (mipsolver.options_mip_->mip_separation_run_path)
+    separators.emplace_back(new HighsPathSeparator(mipsolver));
+  if (mipsolver.options_mip_->mip_separation_run_modk)
+    separators.emplace_back(new HighsModkSeparator(mipsolver));
 }
 
 HighsInt HighsSeparation::separationRound(HighsDomain& propdomain,
@@ -78,10 +81,12 @@ HighsInt HighsSeparation::separationRound(HighsDomain& propdomain,
     return numBoundChgs;
   };
 
-  lp->getMipSolver().analysis_.mipTimerStart(implBoundClock);
-  mipdata.implications.separateImpliedBounds(*lp, lp->getSolution().col_value,
-                                             mipdata.cutpool, mipdata.feastol);
-  lp->getMipSolver().analysis_.mipTimerStop(implBoundClock);
+  if (lp->getMipSolver().options_mip_->mip_separation_run_implied_bound) {
+    lp->getMipSolver().analysis_.mipTimerStart(implBoundClock);
+    mipdata.implications.separateImpliedBounds(
+        *lp, lp->getSolution().col_value, mipdata.cutpool, mipdata.feastol);
+    lp->getMipSolver().analysis_.mipTimerStop(implBoundClock);
+  }
 
   HighsInt ncuts = 0;
   HighsInt numboundchgs = propagateAndResolve();
@@ -90,10 +95,12 @@ HighsInt HighsSeparation::separationRound(HighsDomain& propdomain,
   else
     ncuts += numboundchgs;
 
-  lp->getMipSolver().analysis_.mipTimerStart(cliqueClock);
-  mipdata.cliquetable.separateCliques(lp->getMipSolver(), sol.col_value,
-                                      mipdata.cutpool, mipdata.feastol);
-  lp->getMipSolver().analysis_.mipTimerStop(cliqueClock);
+  if (lp->getMipSolver().options_mip_->mip_separation_run_clique) {
+    lp->getMipSolver().analysis_.mipTimerStart(cliqueClock);
+    mipdata.cliquetable.separateCliques(lp->getMipSolver(), sol.col_value,
+                                        mipdata.cutpool, mipdata.feastol);
+    lp->getMipSolver().analysis_.mipTimerStop(cliqueClock);
+  }
 
   numboundchgs = propagateAndResolve();
   if (numboundchgs == -1)

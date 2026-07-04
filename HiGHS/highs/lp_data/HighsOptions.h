@@ -471,6 +471,12 @@ struct HighsOptionsStruct {
   bool mip_heuristic_run_root_reduced_cost;
   bool mip_heuristic_run_zi_round;
   bool mip_heuristic_run_shifting;
+  bool mip_separation_run_tableau;
+  bool mip_separation_run_path;
+  bool mip_separation_run_modk;
+  bool mip_separation_run_clique;
+  bool mip_separation_run_implied_bound;
+  bool mip_cut_lifting;
   double mip_min_logging_interval;
   std::string mip_lp_solver;
   std::string mip_ipm_solver;
@@ -628,6 +634,12 @@ struct HighsOptionsStruct {
         mip_heuristic_run_root_reduced_cost(false),
         mip_heuristic_run_zi_round(false),
         mip_heuristic_run_shifting(false),
+        mip_separation_run_tableau(true),
+        mip_separation_run_path(true),
+        mip_separation_run_modk(true),
+        mip_separation_run_clique(true),
+        mip_separation_run_implied_bound(true),
+        mip_cut_lifting(true),
         mip_min_logging_interval(0.0),
 #ifdef HIGHS_DEBUGSOL
         mip_debug_solution_file(""),
@@ -1202,6 +1214,40 @@ class HighsOptions : public HighsOptionsStruct {
     record_bool = new OptionRecordBool("mip_heuristic_run_shifting",
                                        "Use the Shifting heuristic", advanced,
                                        &mip_heuristic_run_shifting, false);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
+        "mip_separation_run_tableau",
+        "Use the tableau separator (GMI/CMIR cuts from tableau rows)",
+        advanced, &mip_separation_run_tableau, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
+        "mip_separation_run_path",
+        "Use the path separator (CMIR cuts from path aggregations)", advanced,
+        &mip_separation_run_path, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool("mip_separation_run_modk",
+                                       "Use the mod-k separator", advanced,
+                                       &mip_separation_run_modk, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool("mip_separation_run_clique",
+                                       "Use clique separation", advanced,
+                                       &mip_separation_run_clique, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
+        "mip_separation_run_implied_bound", "Use implied bound separation",
+        advanced, &mip_separation_run_implied_bound, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
+        "mip_cut_lifting",
+        "Attempt lifted cover cuts in cut generation; when off only the "
+        "CMIR heuristic is used",
+        advanced, &mip_cut_lifting, true);
     records.push_back(record_bool);
 
     record_double = new OptionRecordDouble(

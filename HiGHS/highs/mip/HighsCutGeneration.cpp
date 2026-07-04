@@ -1413,6 +1413,8 @@ bool HighsCutGeneration::tryGenerateCut(std::vector<HighsInt>& inds_,
   bool saveIntegalSupport = false;
   bool saveIntegralCoefficients = false;
   do {
+    if (!lpRelaxation.getMipSolver().options_mip_->mip_cut_lifting) break;
+
     if (!determineCover(lpSol)) break;
 
     // 2. use superadditive lifting function depending on structure of base

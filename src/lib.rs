@@ -2525,6 +2525,47 @@ mod test {
     }
 
     #[test]
+    fn test_separation_control_options() {
+        // MIP whose LP relaxation is fractional, so separation is exercised
+        let build = || {
+            let mut pb = RowProblem::default();
+            let cols: Vec<Col> = (0..10).map(|i| pb.add_integer_column(5. + (i % 3) as f64, 0..=1)).collect();
+            let weights: Vec<(Col, f64)> =
+                cols.iter().enumerate().map(|(i, &c)| (c, 3. + (i % 4) as f64)).collect();
+            pb.add_row(..=13.5, &weights);
+            pb.optimise(Sense::Maximise)
+        };
+
+        // "fake GMI only": tableau separator with CMIR, no lifting, nothing else
+        let mut model = build();
+        model.set_option("output_flag", false);
+        model.set_option("presolve", "off");
+        model.set_option("mip_separation_run_tableau", true);
+        model.set_option("mip_separation_run_path", false);
+        model.set_option("mip_separation_run_modk", false);
+        model.set_option("mip_separation_run_clique", false);
+        model.set_option("mip_separation_run_implied_bound", false);
+        model.set_option("mip_cut_lifting", false);
+        let solved = model.solve();
+        assert_eq!(solved.status(), HighsModelStatus::Optimal);
+        let obj_gmi_only = solved.obj_val();
+
+        // all separation off: empty separator list must not crash
+        let mut model = build();
+        model.set_option("output_flag", false);
+        model.set_option("presolve", "off");
+        model.set_option("mip_separation_run_tableau", false);
+        model.set_option("mip_separation_run_path", false);
+        model.set_option("mip_separation_run_modk", false);
+        model.set_option("mip_separation_run_clique", false);
+        model.set_option("mip_separation_run_implied_bound", false);
+        model.set_option("mip_cut_lifting", false);
+        let solved = model.solve();
+        assert_eq!(solved.status(), HighsModelStatus::Optimal);
+        assert!((solved.obj_val() - obj_gmi_only).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_set_solution_and_solve() {
         // min x + y s.t. x + y >= 1, x,y in [0,10]
         let mut pb = RowProblem::default();
