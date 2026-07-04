@@ -566,6 +566,34 @@ bool HighsCutGeneration::cmirCutGenerationHeuristic(double minEfficacy,
   if (!onlyInitialCMIRScale)
     deltas.push_back(maxabsdelta + std::min(1.0, initialScale));
 
+  {
+    const std::string& dumpFile =
+        lpRelaxation.getMipSolver().options_mip_->mip_dump_cut_file;
+    if (!dumpFile.empty()) {
+      FILE* f = fopen((dumpFile + ".base").c_str(), "a");
+      if (f) {
+        double sumabs = 0.0, sumv = 0.0, viol0 = 0.0;
+        for (HighsInt i = 0; i != rowlen; ++i) {
+          sumabs += std::abs(vals[i]);
+          sumv += vals[i];
+          viol0 += vals[i] * solval[i];
+        }
+        fprintf(f,
+                "base rhs=%.17g unscaled=%.17g n=%d nd=%d iscale=%.17g "
+                "sumabs=%.17g sumv=%.17g viol0=%.17g deltas=",
+                (double)rhs, (double)rhs / initialScale, (int)rowlen,
+                (int)deltas.size(), initialScale, sumabs, sumv, viol0);
+        for (double d : deltas) fprintf(f, "%.17g,", d);
+        fprintf(f, " terms=");
+        for (HighsInt i = 0; i != rowlen; ++i)
+          fprintf(f, "%.12g/%.6g/%.6g/%d,", vals[i], upper[i], solval[i],
+                  (int)isintegral[i]);
+        fprintf(f, "\n");
+        fclose(f);
+      }
+    }
+  }
+
   if (deltas.empty()) return false;
 
   pdqsort(deltas.begin(), deltas.end());
@@ -716,6 +744,24 @@ bool HighsCutGeneration::cmirCutGenerationHeuristic(double minEfficacy,
       if (fj > f0) aj += (fj - f0) * oneoveroneminusf0;
 
       vals[j] = double(aj * bestdelta);
+    }
+  }
+
+  {
+    const std::string& dumpFile =
+        lpRelaxation.getMipSolver().options_mip_->mip_dump_cut_file;
+    if (!dumpFile.empty()) {
+      FILE* f = fopen((dumpFile + ".base").c_str(), "a");
+      if (f) {
+        double sumabs = 0.0, sumv = 0.0;
+        for (HighsInt i = 0; i != rowlen; ++i) {
+          sumabs += std::abs(vals[i]);
+          sumv += vals[i];
+        }
+        fprintf(f, "cmir bestdelta=%.17g eff=%.17g rhs=%.17g sumabs=%.17g sumv=%.17g\n",
+                bestdelta, bestefficacy, (double)rhs, sumabs, sumv);
+        fclose(f);
+      }
     }
   }
 

@@ -191,6 +191,67 @@ void HighsTableauSeparator::separateLpSolution(HighsLpRelaxation& lpRelaxation,
 
   const std::string& dumpFile = mip.options_mip_->mip_dump_cut_file;
 
+  if (!dumpFile.empty()) {
+    FILE* f = fopen((dumpFile + ".base").c_str(), "a");
+    if (f) {
+      fprintf(f, "basis");
+      for (HighsInt i = 0; i < numRow; ++i) {
+        if (basisinds[i] >= numCol)
+          fprintf(f, " slack%d", (int)(basisinds[i] - numCol));
+        else
+          fprintf(f, " x%d", (int)basisinds[i]);
+      }
+      fprintf(f, "\n");
+      fclose(f);
+    }
+    // full col/row basis statuses (first separation only), for
+    // transplanting this basis into another solver
+    std::string basisFile = dumpFile + ".basisfull";
+    FILE* check = fopen(basisFile.c_str(), "r");
+    if (check)
+      fclose(check);
+    else {
+      f = fopen(basisFile.c_str(), "w");
+      if (f) {
+        const HighsBasis& basis = lpSolver.getBasis();
+        fprintf(f, "cols");
+        for (const auto& s : basis.col_status) fprintf(f, " %d", (int)s);
+        fprintf(f, "\nrows");
+        for (const auto& s : basis.row_status) fprintf(f, " %d", (int)s);
+        // column bounds at capture time (root propagation may have
+        // tightened them relative to the presolved model)
+        const HighsLp& lpData = lpSolver.getLp();
+        fprintf(f, "\ncollb");
+        for (double b : lpData.col_lower_) fprintf(f, " %.17g", b);
+        fprintf(f, "\ncolub");
+        for (double b : lpData.col_upper_) fprintf(f, " %.17g", b);
+        // LP solution at capture time, to verify a transplanted basis
+        // reproduces the identical vertex
+        fprintf(f, "\ncolval");
+        for (double v : lpSolution.col_value) fprintf(f, " %.17g", v);
+        // exact per-row pattern for cross-solver row matching:
+        // one line per row with bounds and sorted col:val pairs
+        const HighsInt* ARstart = mip.mipdata_->ARstart_.data();
+        const HighsInt* ARindex = mip.mipdata_->ARindex_.data();
+        const double* ARvalue = mip.mipdata_->ARvalue_.data();
+        fprintf(f, "\n");
+        std::vector<std::pair<HighsInt, double>> rowEntries;
+        for (HighsInt r = 0; r < lpData.num_row_; ++r) {
+          rowEntries.clear();
+          for (HighsInt j = ARstart[r]; j < ARstart[r + 1]; ++j)
+            rowEntries.emplace_back(ARindex[j], ARvalue[j]);
+          pdqsort(rowEntries.begin(), rowEntries.end());
+          fprintf(f, "rowpat %d %.17g %.17g", (int)r, lpData.row_lower_[r],
+                  lpData.row_upper_[r]);
+          for (const auto& e : rowEntries)
+            fprintf(f, " %d:%.17g", (int)e.first, e.second);
+          fprintf(f, "\n");
+        }
+        fclose(f);
+      }
+    }
+  }
+
   for (const auto& fracvar : fractionalBasisvars) {
     if (cutpool.getNumCuts() - numCuts >= 1000) break;
 
