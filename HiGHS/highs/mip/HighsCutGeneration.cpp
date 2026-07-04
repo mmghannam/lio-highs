@@ -7,6 +7,8 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #include "mip/HighsCutGeneration.h"
 
+#include <cstdio>
+
 #include "../extern/pdqsort/pdqsort.h"
 #include "mip/HighsMipSolverData.h"
 #include "mip/HighsTransformedLp.h"
@@ -1199,6 +1201,23 @@ bool HighsCutGeneration::generateCut(HighsTransformedLp& transLp,
   HighsInt cutindex = cutpool.addCut(lpRelaxation.getMipSolver(), inds_.data(),
                                      vals_.data(), inds_.size(), rhs_,
                                      integralSupport && integralCoefficients);
+
+  const std::string& dumpFile =
+      lpRelaxation.getMipSolver().options_mip_->mip_dump_cut_file;
+  if (!dumpFile.empty()) {
+    FILE* f = fopen(dumpFile.c_str(), "a");
+    if (f) {
+      // cut is a^T x <= rhs in the (presolved) column space
+      fprintf(f, "lpiters=%lld accepted=%d viol=%.17g rhs=%.17g nnz=%d",
+              (long long)lpRelaxation.getMipSolver()
+                  .mipdata_->total_lp_iterations,
+              (int)(cutindex != -1), (double)violation, rhs_, (int)rowlen);
+      for (HighsInt i = 0; i != rowlen; ++i)
+        fprintf(f, " x%d:%.17g", (int)inds_[i], vals_[i]);
+      fprintf(f, "\n");
+      fclose(f);
+    }
+  }
 
   // only return true if cut was accepted by the cutpool, i.e. not a duplicate
   // of a cut already in the pool

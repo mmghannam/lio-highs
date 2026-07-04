@@ -471,6 +471,8 @@ struct HighsOptionsStruct {
   bool mip_heuristic_run_root_reduced_cost;
   bool mip_heuristic_run_zi_round;
   bool mip_heuristic_run_shifting;
+  bool mip_heuristic_run_randomized_rounding;
+  bool mip_heuristic_run_central_rounding;
   bool mip_separation_run_tableau;
   bool mip_separation_run_path;
   bool mip_separation_run_modk;
@@ -478,6 +480,7 @@ struct HighsOptionsStruct {
   bool mip_separation_run_implied_bound;
   bool mip_cut_lifting;
   bool mip_cut_variable_bound_substitution;
+  std::string mip_dump_cut_file;
   double mip_min_logging_interval;
   std::string mip_lp_solver;
   std::string mip_ipm_solver;
@@ -635,6 +638,8 @@ struct HighsOptionsStruct {
         mip_heuristic_run_root_reduced_cost(false),
         mip_heuristic_run_zi_round(false),
         mip_heuristic_run_shifting(false),
+        mip_heuristic_run_randomized_rounding(true),
+        mip_heuristic_run_central_rounding(true),
         mip_separation_run_tableau(true),
         mip_separation_run_path(true),
         mip_separation_run_modk(true),
@@ -642,6 +647,7 @@ struct HighsOptionsStruct {
         mip_separation_run_implied_bound(true),
         mip_cut_lifting(true),
         mip_cut_variable_bound_substitution(true),
+        mip_dump_cut_file(""),
         mip_min_logging_interval(0.0),
 #ifdef HIGHS_DEBUGSOL
         mip_debug_solution_file(""),
@@ -1219,6 +1225,18 @@ class HighsOptions : public HighsOptionsStruct {
     records.push_back(record_bool);
 
     record_bool = new OptionRecordBool(
+        "mip_heuristic_run_randomized_rounding",
+        "Use the randomized rounding heuristic at the root", advanced,
+        &mip_heuristic_run_randomized_rounding, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
+        "mip_heuristic_run_central_rounding",
+        "Use the central rounding heuristic at the root", advanced,
+        &mip_heuristic_run_central_rounding, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
         "mip_separation_run_tableau",
         "Use the tableau separator (GMI/CMIR cuts from tableau rows)",
         advanced, &mip_separation_run_tableau, true);
@@ -1259,6 +1277,13 @@ class HighsOptions : public HighsOptionsStruct {
         "are used",
         advanced, &mip_cut_variable_bound_substitution, true);
     records.push_back(record_bool);
+
+    record_string = new OptionRecordString(
+        "mip_dump_cut_file",
+        "File to which generated cuts are appended (one line per cut, in "
+        "presolved column space): not dumped for an empty string \\\"\\\"",
+        advanced, &mip_dump_cut_file, kHighsFilenameDefault);
+    records.push_back(record_string);
 
     record_double = new OptionRecordDouble(
         "mip_rel_gap",

@@ -189,12 +189,27 @@ void HighsTableauSeparator::separateLpSolution(HighsLpRelaxation& lpRelaxation,
   HighsInt numCuts = cutpool.getNumCuts();
   const double bestScoreFac[] = {0.0025, 0.01};
 
+  const std::string& dumpFile = mip.options_mip_->mip_dump_cut_file;
+
   for (const auto& fracvar : fractionalBasisvars) {
     if (cutpool.getNumCuts() - numCuts >= 1000) break;
 
     if (fracvar.score <
         bestScoreFac[cutpool.getNumCuts() - numCuts >= 50] * bestScore)
       break;
+
+    if (!dumpFile.empty()) {
+      FILE* f = fopen(dumpFile.c_str(), "a");
+      if (f) {
+        HighsInt bi = basisinds[fracvar.basisIndex];
+        if (bi >= numCol)
+          fprintf(f, "src slack%d frac=%.17g\n", (int)(bi - numCol),
+                  fracvar.fractionality);
+        else
+          fprintf(f, "src x%d frac=%.17g\n", (int)bi, fracvar.fractionality);
+        fclose(f);
+      }
+    }
 
     assert(lpAggregator.isEmpty());
     for (std::pair<HighsInt, double> rowWeight : fracvar.row_ep)

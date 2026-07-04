@@ -1804,7 +1804,8 @@ bool HighsMipSolverData::rootSeparationRound(
   const std::vector<double>& solvals = lp.getLpSolver().getSolution().col_value;
 
   if (mipsolver.submip || incumbent.empty()) {
-    heuristics.randomizedRounding(solvals);
+    if (mipsolver.options_mip_->mip_heuristic_run_randomized_rounding)
+      heuristics.randomizedRounding(solvals);
     if (mipsolver.options_mip_->mip_heuristic_run_shifting)
       heuristics.shifting(solvals);
     heuristics.flushStatistics();
@@ -2088,9 +2089,11 @@ restart:
 
   if (mipsolver.options_mip_->mip_heuristic_run_zi_round)
     heuristics.ziRound(firstlpsol);
-  analysis.mipTimerStart(kMipClockRandomizedRounding);
-  heuristics.randomizedRounding(firstlpsol);
-  analysis.mipTimerStop(kMipClockRandomizedRounding);
+  if (mipsolver.options_mip_->mip_heuristic_run_randomized_rounding) {
+    analysis.mipTimerStart(kMipClockRandomizedRounding);
+    heuristics.randomizedRounding(firstlpsol);
+    analysis.mipTimerStop(kMipClockRandomizedRounding);
+  }
   if (mipsolver.options_mip_->mip_heuristic_run_shifting)
     heuristics.shifting(firstlpsol);
 
@@ -2191,9 +2194,11 @@ restart:
       analysis.mipTimerStop(
           kMipClockRootSeparationFinishAnalyticCentreComputation);
 
-      analysis.mipTimerStart(kMipClockRootSeparationCentralRounding);
-      heuristics.centralRounding();
-      analysis.mipTimerStop(kMipClockRootSeparationCentralRounding);
+      if (mipsolver.options_mip_->mip_heuristic_run_central_rounding) {
+        analysis.mipTimerStart(kMipClockRootSeparationCentralRounding);
+        heuristics.centralRounding();
+        analysis.mipTimerStop(kMipClockRootSeparationCentralRounding);
+      }
 
       heuristics.flushStatistics();
 
@@ -2298,9 +2303,11 @@ restart:
     finishAnalyticCenterComputation(tg);
     analysis.mipTimerStop(kMipClockFinishAnalyticCentreComputation);
 
-    analysis.mipTimerStart(kMipClockRootCentralRounding);
-    heuristics.centralRounding();
-    analysis.mipTimerStop(kMipClockRootCentralRounding);
+    if (mipsolver.options_mip_->mip_heuristic_run_central_rounding) {
+      analysis.mipTimerStart(kMipClockRootCentralRounding);
+      heuristics.centralRounding();
+      analysis.mipTimerStop(kMipClockRootCentralRounding);
+    }
 
     heuristics.flushStatistics();
 
