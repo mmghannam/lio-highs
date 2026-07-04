@@ -2546,6 +2546,7 @@ mod test {
         model.set_option("mip_separation_run_clique", false);
         model.set_option("mip_separation_run_implied_bound", false);
         model.set_option("mip_cut_lifting", false);
+        model.set_option("mip_cut_variable_bound_substitution", false);
         let solved = model.solve();
         assert_eq!(solved.status(), HighsModelStatus::Optimal);
         let obj_gmi_only = solved.obj_val();

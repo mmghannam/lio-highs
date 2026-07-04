@@ -477,6 +477,7 @@ struct HighsOptionsStruct {
   bool mip_separation_run_clique;
   bool mip_separation_run_implied_bound;
   bool mip_cut_lifting;
+  bool mip_cut_variable_bound_substitution;
   double mip_min_logging_interval;
   std::string mip_lp_solver;
   std::string mip_ipm_solver;
@@ -640,6 +641,7 @@ struct HighsOptionsStruct {
         mip_separation_run_clique(true),
         mip_separation_run_implied_bound(true),
         mip_cut_lifting(true),
+        mip_cut_variable_bound_substitution(true),
         mip_min_logging_interval(0.0),
 #ifdef HIGHS_DEBUGSOL
         mip_debug_solution_file(""),
@@ -1248,6 +1250,14 @@ class HighsOptions : public HighsOptionsStruct {
         "Attempt lifted cover cuts in cut generation; when off only the "
         "CMIR heuristic is used",
         advanced, &mip_cut_lifting, true);
+    records.push_back(record_bool);
+
+    record_bool = new OptionRecordBool(
+        "mip_cut_variable_bound_substitution",
+        "Use variable bounds (VUB/VLB) from implications for bound "
+        "substitution in cut generation; when off only simple column bounds "
+        "are used",
+        advanced, &mip_cut_variable_bound_substitution, true);
     records.push_back(record_bool);
 
     record_double = new OptionRecordDouble(

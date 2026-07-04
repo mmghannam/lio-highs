@@ -17,6 +17,8 @@ HighsTransformedLp::HighsTransformedLp(const HighsLpRelaxation& lprelaxation,
     : lprelaxation(lprelaxation) {
   assert(lprelaxation.scaledOptimal(lprelaxation.getStatus()));
   const HighsMipSolver& mipsolver = implications.mipsolver;
+  const bool useVarBounds =
+      mipsolver.options_mip_->mip_cut_variable_bound_substitution;
   const HighsSolution& lpSolution = lprelaxation.getLpSolver().getSolution();
 
   HighsInt numTransformedCol = lprelaxation.numCols() + lprelaxation.numRows();
@@ -43,13 +45,15 @@ HighsTransformedLp::HighsTransformedLp(const HighsLpRelaxation& lprelaxation,
     simpleUbDist[col] = bestub - lpSolution.col_value[col];
     if (simpleUbDist[col] <= mipsolver.mipdata_->feastol)
       simpleUbDist[col] = 0.0;
-    bestVub[col] = implications.getBestVub(col, lpSolution, bestub);
+    if (useVarBounds)
+      bestVub[col] = implications.getBestVub(col, lpSolution, bestub);
 
     double bestlb = mipsolver.mipdata_->domain.col_lower_[col];
     simpleLbDist[col] = lpSolution.col_value[col] - bestlb;
     if (simpleLbDist[col] <= mipsolver.mipdata_->feastol)
       simpleLbDist[col] = 0.0;
-    bestVlb[col] = implications.getBestVlb(col, lpSolution, bestlb);
+    if (useVarBounds)
+      bestVlb[col] = implications.getBestVlb(col, lpSolution, bestlb);
 
     lbDist[col] = lpSolution.col_value[col] - bestlb;
     if (lbDist[col] <= mipsolver.mipdata_->feastol) lbDist[col] = 0.0;
@@ -73,7 +77,7 @@ HighsTransformedLp::HighsTransformedLp(const HighsLpRelaxation& lprelaxation,
     if (simpleLbDist[col] <= mipsolver.mipdata_->feastol)
       simpleLbDist[col] = 0.0;
     double simpleBndDist = std::min(simpleLbDist[col], simpleUbDist[col]);
-    if (simpleBndDist > 0 &&
+    if (useVarBounds && simpleBndDist > 0 &&
         std::fabs(HighsIntegers::nearestInteger(lpSolution.col_value[col]) -
                   lpSolution.col_value[col]) < mipsolver.mipdata_->feastol) {
       bestVub[col] =
