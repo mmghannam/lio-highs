@@ -386,12 +386,41 @@ else()
   # to the rucks install root (alongside the rucks binary) for find_package.
   if(LIO_RUCKS)
     find_package(Rucks REQUIRED)
+    # Loops only — FUNCS is deliberately not passed (rucks >= 0.9 is
+    # loops-only by default). Counting C++ function entries costs several
+    # percent of wall clock here and its count is not reproducible run to
+    # run, while the loop count is bit-identical. See src/rucks.rs.
+    #
+    # Headers are instrumented as well as sources. A lot of HiGHS's real work
+    # lives in header-defined templates and inline code — HighsHashTree, the
+    # red-black tree, the matrix slices, pdqsort — and a sources-only
+    # instrumentation counts every iteration of it as zero.
+    #
+    # HEADER_BASE is the HiGHS root rather than highs/, because pdqsort is
+    # included as "../extern/pdqsort/pdqsort.h": mirroring from the root keeps
+    # extern/ a sibling of highs/ in the instrumented copy, so that path still
+    # resolves. Consumers of the *installed* headers get the originals, which
+    # is correct here — lio-highs binds the C API only, so every template in
+    # these headers is instantiated inside libhighs itself.
+    file(GLOB_RECURSE _lio_rucks_headers
+      "${PROJECT_SOURCE_DIR}/highs/*.h"
+      "${PROJECT_SOURCE_DIR}/highs/*.hpp"
+      "${PROJECT_SOURCE_DIR}/highs/*.hh")
+    list(APPEND _lio_rucks_headers "${PROJECT_SOURCE_DIR}/extern/pdqsort/pdqsort.h")
     rucks_instrument(
       TARGET highs
       LANGUAGE CXX
       BUCKET highs
+      HEADERS ${_lio_rucks_headers}
+      HEADER_BASE "${PROJECT_SOURCE_DIR}"
       EXPORT_SET highs-targets
     )
+    # rucks_instrument puts the root of the mirrored tree on the include path,
+    # but HiGHS's sources reach their own headers relative to highs/
+    # ("util/HighsHash.h"), so highs/ inside that root has to be an include
+    # root too. BEFORE, so the copies keep shadowing the originals.
+    get_property(_lio_rucks_inc GLOBAL PROPERTY _RUCKS_INC_ROOT_highs)
+    target_include_directories(highs BEFORE PRIVATE "${_lio_rucks_inc}/highs")
     # rucks_core is a PRIVATE static-lib dep of highs. cpp-highs.cmake later
     # calls `export(TARGETS highs FILE ...)`, which refuses to export highs
     # unless its PRIVATE static deps are also in some build-tree export. The

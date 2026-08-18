@@ -2705,7 +2705,7 @@ mod test {
     #[cfg(feature = "rucks")]
     fn test_rucks_counters() {
         crate::rucks::reset();
-        assert_eq!(crate::rucks::total_count(), 0);
+        assert_eq!(crate::rucks::loop_count(), 0);
 
         // Solve a small LP — HiGHS should do measurable work
         let mut pb = RowProblem::default();
@@ -2716,9 +2716,8 @@ mod test {
         let solved = pb.optimise(Sense::Maximise).solve();
         assert_eq!(solved.status(), HighsModelStatus::Optimal);
 
-        let total = crate::rucks::total_count();
-        assert!(total > 0, "expected rucks counters > 0 after solve, got {total}");
-        assert!(crate::rucks::func_count() > 0, "expected func_count > 0");
+        let loops = crate::rucks::loop_count();
+        assert!(loops > 0, "expected rucks loop counter > 0 after solve, got {loops}");
     }
 
     #[test]
