@@ -407,6 +407,22 @@ else()
       "${PROJECT_SOURCE_DIR}/highs/*.hpp"
       "${PROJECT_SOURCE_DIR}/highs/*.hh")
     list(APPEND _lio_rucks_headers "${PROJECT_SOURCE_DIR}/extern/pdqsort/pdqsort.h")
+    # highs/parallel/ is excluded: its loops are the task scheduler's spin and
+    # work-stealing waits, and they are wall-clock gated by construction —
+    # HighsTaskExecutor::random_steal_loop and sync_stolen_task double their
+    # spin budget until a microsecond deadline, as do HighsBinarySemaphore,
+    # HighsMutex and HighsSplitDeque's wait-for-stolen-task. Counting them
+    # makes loop_count() a function of how long the spinning happened to last
+    # rather than of the work done: at threads=4 on markshare_4_0 they were
+    # 3.5% of the count and doubled its run-to-run spread. They contribute no algorithmic work in any case: the spin
+    # bodies cannot run at threads=1 (numTries is 16*(numWorkers-1) = 0, no
+    # worker threads are spawned, nothing can be stolen), and excluding the
+    # whole directory costs 13 counted iterations on a serial markshare_4_0.
+    # Note: the instrumented mirror is not pruned when a header leaves this
+    # list — the stale copy keeps shadowing the original, because the mirror
+    # root is on the include path ahead of it. After changing the header set,
+    # delete <build>/highs/_rucks before rebuilding.
+    list(FILTER _lio_rucks_headers EXCLUDE REGEX "/highs/parallel/")
     rucks_instrument(
       TARGET highs
       LANGUAGE CXX
