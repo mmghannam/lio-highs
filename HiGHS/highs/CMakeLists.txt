@@ -450,6 +450,17 @@ else()
       # root is on the include path ahead of it. After changing the header set,
       # delete <build>/highs/_rucks before rebuilding.
       list(FILTER _lio_rucks_headers EXCLUDE REGEX "/highs/parallel/")
+      # HighsRandom.h is excluded too: its drawUniform rejection-sampling
+      # while(true) loop has a genuinely non-reproducible trip count — the
+      # number of RNG draws in the dual-simplex random-start pricing
+      # (HEkkDualRHS::chooseNormal) and per-solve random-vector generation
+      # varies by a few tens run to run even with a fixed random_seed, and it
+      # is the SOLE source of this build's run-to-run loop drift (root-caused
+      # on flugpl in lio/src/bin/rucks_pf.rs). The file's other loops
+      # (shuffle, fraction) are deterministic but carry no meaningful work, so
+      # dropping the whole header costs nothing while making the count
+      # bit-identical.
+      list(FILTER _lio_rucks_headers EXCLUDE REGEX "HighsRandom")
       rucks_instrument(
         TARGET highs
         LANGUAGE CXX
