@@ -26,3 +26,9 @@ ninja = []
 libz = []
 inst-count = []
 rucks = []
+# Per-function loop attribution on top of `rucks`: loops are attributed to
+# the HiGHS function that contains them (plus the function-entry counting
+# registration), and the pf runtime exposes per-function counters instead of
+# a single aggregate. Implies `rucks` (the bucketed loop runtime + rucks_core
+# are still linked; pf mode routes loop increments into the pf table).
+rucks-pf = ["rucks"]

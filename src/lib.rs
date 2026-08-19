@@ -2702,7 +2702,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "rucks")]
+    #[cfg(all(feature = "rucks", not(feature = "rucks-pf")))]
     fn test_rucks_counters() {
         crate::rucks::reset();
         assert_eq!(crate::rucks::loop_count(), 0);
@@ -2718,6 +2718,42 @@ mod test {
 
         let loops = crate::rucks::loop_count();
         assert!(loops > 0, "expected rucks loop counter > 0 after solve, got {loops}");
+    }
+
+    #[test]
+    #[cfg(feature = "rucks-pf")]
+    fn test_rucks_pf_counters() {
+        crate::rucks::rucks_pf::reset();
+        assert_eq!(crate::rucks::rucks_pf::loop_count(), 0);
+
+        // Solve a small LP — HiGHS should do measurable work.
+        let mut pb = RowProblem::default();
+        let x = pb.add_column(1., 0..);
+        let y = pb.add_column(2., 0..);
+        pb.add_row(..=6, &[(x, 3.), (y, 1.)]);
+        pb.add_row(..=7, &[(y, 1.)]);
+        let mut model = pb.optimise(Sense::Maximise);
+        model.set_option("threads", 1i32); // full attribution needs one thread
+        let solved = model.solve();
+        assert_eq!(solved.status(), HighsModelStatus::Optimal);
+
+        let counts = crate::rucks::rucks_pf::counts();
+        assert!(!counts.is_empty(), "expected per-function counts after solve");
+        let total: u64 = counts.iter().map(|(_, c)| c).sum();
+        assert!(total > 0, "expected > 0 attributed loop iterations, got {total}");
+        // counts() reads the calling thread's table, so the sum matches the
+        // calling thread's total. loop_count() would additionally include any
+        // other test thread's counted work (the harness runs tests in
+        // parallel), so compare against the per-thread total instead.
+        assert_eq!(total, crate::rucks::rucks_pf::thread_loop_count());
+        // Every name should round-trip through the name table.
+        for (i, (name, c)) in counts.iter().enumerate() {
+            assert!(c > &0);
+            assert!(
+                name.contains("::"),
+                "expected a <file>::<func> name, got {name:?} (slot {i})"
+            );
+        }
     }
 
     #[test]

@@ -115,10 +115,16 @@ fn main() {
     // it gates rucks_instrument(TARGET highs BUCKET highs) on. The CMake module
     // copies sources, runs `rucks inst`, builds rucks_rt_highs.c + rucks_core.c,
     // and force-includes the bucket header — no manual orchestration needed here.
+    // rucks-pf turns on per-function attribution: HiGHS's CMakeLists.txt passes
+    // PER_FUNCTION to rucks_instrument, which routes every loop increment into a
+    // per-function table (see src/rucks.rs `rucks_pf` module).
     if cfg!(feature = "rucks") {
         let prefix = locate_rucks_prefix()
             .expect("`rucks` binary not on PATH; install rucks first");
         dst.define("LIO_RUCKS", "ON");
+        if cfg!(feature = "rucks-pf") {
+            dst.define("LIO_RUCKS_PER_FUNCTION", "ON");
+        }
         dst.define("CMAKE_PREFIX_PATH", &prefix);
     }
 

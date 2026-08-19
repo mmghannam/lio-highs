@@ -386,57 +386,85 @@ else()
   # to the rucks install root (alongside the rucks binary) for find_package.
   if(LIO_RUCKS)
     find_package(Rucks REQUIRED)
-    # Loops only — FUNCS is deliberately not passed (rucks >= 0.9 is
-    # loops-only by default). Counting C++ function entries costs several
-    # percent of wall clock here and its count is not reproducible run to
-    # run, while the loop count is bit-identical. See src/rucks.rs.
-    #
-    # Headers are instrumented as well as sources. A lot of HiGHS's real work
-    # lives in header-defined templates and inline code — HighsHashTree, the
-    # red-black tree, the matrix slices, pdqsort — and a sources-only
-    # instrumentation counts every iteration of it as zero.
-    #
-    # HEADER_BASE is the HiGHS root rather than highs/, because pdqsort is
-    # included as "../extern/pdqsort/pdqsort.h": mirroring from the root keeps
-    # extern/ a sibling of highs/ in the instrumented copy, so that path still
-    # resolves. Consumers of the *installed* headers get the originals, which
-    # is correct here — lio-highs binds the C API only, so every template in
-    # these headers is instantiated inside libhighs itself.
-    file(GLOB_RECURSE _lio_rucks_headers
-      "${PROJECT_SOURCE_DIR}/highs/*.h"
-      "${PROJECT_SOURCE_DIR}/highs/*.hpp"
-      "${PROJECT_SOURCE_DIR}/highs/*.hh")
-    list(APPEND _lio_rucks_headers "${PROJECT_SOURCE_DIR}/extern/pdqsort/pdqsort.h")
-    # highs/parallel/ is excluded: its loops are the task scheduler's spin and
-    # work-stealing waits, and they are wall-clock gated by construction —
-    # HighsTaskExecutor::random_steal_loop and sync_stolen_task double their
-    # spin budget until a microsecond deadline, as do HighsBinarySemaphore,
-    # HighsMutex and HighsSplitDeque's wait-for-stolen-task. Counting them
-    # makes loop_count() a function of how long the spinning happened to last
-    # rather than of the work done: at threads=4 on markshare_4_0 they were
-    # 3.5% of the count and doubled its run-to-run spread. They contribute no algorithmic work in any case: the spin
-    # bodies cannot run at threads=1 (numTries is 16*(numWorkers-1) = 0, no
-    # worker threads are spawned, nothing can be stolen), and excluding the
-    # whole directory costs 13 counted iterations on a serial markshare_4_0.
-    # Note: the instrumented mirror is not pruned when a header leaves this
-    # list — the stale copy keeps shadowing the original, because the mirror
-    # root is on the include path ahead of it. After changing the header set,
-    # delete <build>/highs/_rucks before rebuilding.
-    list(FILTER _lio_rucks_headers EXCLUDE REGEX "/highs/parallel/")
-    rucks_instrument(
-      TARGET highs
-      LANGUAGE CXX
-      BUCKET highs
-      HEADERS ${_lio_rucks_headers}
-      HEADER_BASE "${PROJECT_SOURCE_DIR}"
-      EXPORT_SET highs-targets
-    )
-    # rucks_instrument puts the root of the mirrored tree on the include path,
-    # but HiGHS's sources reach their own headers relative to highs/
-    # ("util/HighsHash.h"), so highs/ inside that root has to be an include
-    # root too. BEFORE, so the copies keep shadowing the originals.
-    get_property(_lio_rucks_inc GLOBAL PROPERTY _RUCKS_INC_ROOT_highs)
-    target_include_directories(highs BEFORE PRIVATE "${_lio_rucks_inc}/highs")
+    if(LIO_RUCKS_PER_FUNCTION)
+      # Per-function attribution (lio-highs `rucks-pf` feature): every loop
+      # increment lands in a per-function table indexed by the enclosing
+      # function, so loop iterations can be attributed to specific HiGHS
+      # functions instead of summed into one bucket total. The function names
+      # are keyed "<filestem>::<funcname>" and exposed through the Rust API
+      # in src/rucks.rs (`rucks_pf::counts`). See that module for the
+      # reproducibility and coverage caveats.
+      #
+      # Sources only — the rucks CMake module refuses to compose PER_FUNCTION
+      # with HEADERS (sources and headers would be instrumented in two
+      # separate `rucks inst` runs with disjoint function-index maps, and the
+      # second would clobber the first's rucks_pf_rt table). So the header
+      # templates (HighsHashTree, the red-black tree, the matrix slices,
+      # pdqsort) are not counted in this mode: work they do is attributed to
+      # the .cpp function that instantiates them, not zero. Entries are
+      # registration-only (RUCKS_PF_ENSURE, no per-call counter), so the only
+      # overhead over the deferred loops-only build is the per-iteration
+      # array increment — see rucks-paper/data/rucks_pf_overhead.csv.
+      rucks_instrument(
+        TARGET highs
+        LANGUAGE CXX
+        BUCKET highs
+        PER_FUNCTION
+        EXPORT_SET highs-targets
+      )
+    else()
+      # Loops only — FUNCS is deliberately not passed (rucks >= 0.9 is
+      # loops-only by default). Counting C++ function entries costs several
+      # percent of wall clock here and its count is not reproducible run to
+      # run, while the loop count is bit-identical. See src/rucks.rs.
+      #
+      # Headers are instrumented as well as sources. A lot of HiGHS's real work
+      # lives in header-defined templates and inline code — HighsHashTree, the
+      # red-black tree, the matrix slices, pdqsort — and a sources-only
+      # instrumentation counts every iteration of it as zero.
+      #
+      # HEADER_BASE is the HiGHS root rather than highs/, because pdqsort is
+      # included as "../extern/pdqsort/pdqsort.h": mirroring from the root keeps
+      # extern/ a sibling of highs/ in the instrumented copy, so that path still
+      # resolves. Consumers of the *installed* headers get the originals, which
+      # is correct here — lio-highs binds the C API only, so every template in
+      # these headers is instantiated inside libhighs itself.
+      file(GLOB_RECURSE _lio_rucks_headers
+        "${PROJECT_SOURCE_DIR}/highs/*.h"
+        "${PROJECT_SOURCE_DIR}/highs/*.hpp"
+        "${PROJECT_SOURCE_DIR}/highs/*.hh")
+      list(APPEND _lio_rucks_headers "${PROJECT_SOURCE_DIR}/extern/pdqsort/pdqsort.h")
+      # highs/parallel/ is excluded: its loops are the task scheduler's spin and
+      # work-stealing waits, and they are wall-clock gated by construction —
+      # HighsTaskExecutor::random_steal_loop and sync_stolen_task double their
+      # spin budget until a microsecond deadline, as do HighsBinarySemaphore,
+      # HighsMutex and HighsSplitDeque's wait-for-stolen-task. Counting them
+      # makes loop_count() a function of how long the spinning happened to last
+      # rather than of the work done: at threads=4 on markshare_4_0 they were
+      # 3.5% of the count and doubled its run-to-run spread. They contribute no algorithmic work in any case: the spin
+      # bodies cannot run at threads=1 (numTries is 16*(numWorkers-1) = 0, no
+      # worker threads are spawned, nothing can be stolen), and excluding the
+      # whole directory costs 13 counted iterations on a serial markshare_4_0.
+      # Note: the instrumented mirror is not pruned when a header leaves this
+      # list — the stale copy keeps shadowing the original, because the mirror
+      # root is on the include path ahead of it. After changing the header set,
+      # delete <build>/highs/_rucks before rebuilding.
+      list(FILTER _lio_rucks_headers EXCLUDE REGEX "/highs/parallel/")
+      rucks_instrument(
+        TARGET highs
+        LANGUAGE CXX
+        BUCKET highs
+        HEADERS ${_lio_rucks_headers}
+        HEADER_BASE "${PROJECT_SOURCE_DIR}"
+        EXPORT_SET highs-targets
+      )
+      # rucks_instrument puts the root of the mirrored tree on the include path,
+      # but HiGHS's sources reach their own headers relative to highs/
+      # ("util/HighsHash.h"), so highs/ inside that root has to be an include
+      # root too. BEFORE, so the copies keep shadowing the originals.
+      get_property(_lio_rucks_inc GLOBAL PROPERTY _RUCKS_INC_ROOT_highs)
+      target_include_directories(highs BEFORE PRIVATE "${_lio_rucks_inc}/highs")
+    endif()
     # rucks_core is a PRIVATE static-lib dep of highs. cpp-highs.cmake later
     # calls `export(TARGETS highs FILE ...)`, which refuses to export highs
     # unless its PRIVATE static deps are also in some build-tree export. The

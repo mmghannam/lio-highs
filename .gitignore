@@ -1,5 +1,7 @@
 /target
 Cargo.lock
+.DS_Store
+HiGHS.log
 highs-wasm/dist/
 highs-wasm/demo/*.wasm
 highs-wasm/demo/highs_wasm.js

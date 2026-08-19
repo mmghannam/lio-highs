@@ -27,7 +27,12 @@ fn main() {
             .unwrap_or(3000);
         model.set_option("mip_max_nodes", nodes);
 
-        #[cfg(feature = "rucks")]
+        // rucks::reset() clears the base bucket counters; in pf mode the loop
+        // counts live in the per-function table, so that must be reset instead
+        // — otherwise Model::default()/read()/set_option above get counted too.
+        #[cfg(feature = "rucks-pf")]
+        lio_highs::rucks::rucks_pf::reset();
+        #[cfg(all(feature = "rucks", not(feature = "rucks-pf")))]
         lio_highs::rucks::reset();
 
         let t = Instant::now();
@@ -39,7 +44,11 @@ fn main() {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.clone());
 
-        #[cfg(feature = "rucks")]
+        // With rucks-pf the base bucket total reads 0 (loops go into the
+        // per-function table), so the summary line shows the pf total instead.
+        #[cfg(feature = "rucks-pf")]
+        let counters = format!(" loops={}", lio_highs::rucks::rucks_pf::loop_count());
+        #[cfg(all(feature = "rucks", not(feature = "rucks-pf")))]
         let counters = format!(" loops={}", lio_highs::rucks::loop_count());
         #[cfg(not(feature = "rucks"))]
         let counters = String::new();
@@ -47,5 +56,18 @@ fn main() {
         // status() is not printed: the node-limit stop code has no mapping
         // in the bindings' HighsModelStatus and unwrapping it panics.
         println!("{name}\t{secs:.3}\tobj={}{counters}", solved.obj_val());
+
+        // Per-function attribution (--features rucks-pf): dump every tracked
+        // HiGHS function's loop iterations, largest first.
+        #[cfg(feature = "rucks-pf")]
+        {
+            let mut counts = lio_highs::rucks::rucks_pf::counts();
+            counts.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+            for (name, c) in &counts {
+                println!("\tRUCKS_PFLOOPS_{name}={c}");
+            }
+            let total: u64 = counts.iter().map(|(_, c)| c).sum();
+            println!("\tRUCKS_LOOPS_highs={total} ({} functions)", counts.len());
+        }
     }
 }
