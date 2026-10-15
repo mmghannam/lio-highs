@@ -1386,6 +1386,22 @@ HighsInt Highs_implicationsCached(const void* highs, const HighsInt col,
   return ((Highs*)highs)->implicationsCached(col, val) ? 1 : 0;
 }
 
+HighsInt Highs_hasVarBounds(const void* highs) {
+  return ((Highs*)highs)->hasVarBounds() ? 1 : 0;
+}
+
+HighsInt Highs_getNumVarBounds(const void* highs) {
+  return ((Highs*)highs)->getNumVarBounds();
+}
+
+HighsInt Highs_getVarBounds(const void* highs, HighsInt* num_entries,
+                            HighsInt* col, HighsInt* bincol,
+                            HighsInt* isUpper, double* coef,
+                            double* constant) {
+  return (HighsInt)((Highs*)highs)->getVarBounds(num_entries, col, bincol,
+                                                 isUpper, coef, constant);
+}
+
 HighsInt Highs_hasCliques(const void* highs) {
   return ((Highs*)highs)->hasCliques() ? 1 : 0;
 }

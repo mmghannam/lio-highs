@@ -1002,6 +1002,76 @@ impl Model {
         Ok(cliques)
     }
 
+    /// Check if variable-bound implication (VUB/VLB) data is available from MIP
+    /// presolve.
+    pub fn has_var_bounds(&self) -> bool {
+        unsafe { Highs_hasVarBounds(self.highs.ptr()) != 0 }
+    }
+
+    /// Get the total number of variable-bound implications (VUBs + VLBs)
+    /// extracted during MIP presolve.
+    pub fn num_var_bounds(&self) -> usize {
+        unsafe { Highs_getNumVarBounds(self.highs.ptr()) as usize }
+    }
+
+    /// Get all variable-bound implications (VUBs/VLBs) extracted during MIP
+    /// presolve. Column indices refer to the presolved model.
+    pub fn get_var_bounds(&self) -> Result<Vec<VarBound>, HighsStatus> {
+        let mut num_entries: HighsInt = 0;
+
+        let status = unsafe {
+            Highs_getVarBounds(
+                self.highs.ptr(),
+                &mut num_entries,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        try_handle_status(status, "getting variable-bound sizes")?;
+
+        if num_entries == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut cols: Vec<HighsInt> = vec![0; num_entries as usize];
+        let mut bincols: Vec<HighsInt> = vec![0; num_entries as usize];
+        let mut is_upper: Vec<HighsInt> = vec![0; num_entries as usize];
+        let mut coefs: Vec<f64> = vec![0.0; num_entries as usize];
+        let mut constants: Vec<f64> = vec![0.0; num_entries as usize];
+
+        let status = unsafe {
+            Highs_getVarBounds(
+                self.highs.ptr(),
+                &mut num_entries,
+                cols.as_mut_ptr(),
+                bincols.as_mut_ptr(),
+                is_upper.as_mut_ptr(),
+                coefs.as_mut_ptr(),
+                constants.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting variable-bound data")?;
+
+        let var_bounds: Vec<VarBound> = (0..num_entries as usize)
+            .map(|i| VarBound {
+                column: cols[i] as Col,
+                binary_column: bincols[i] as Col,
+                bound_type: if is_upper[i] != 0 {
+                    ImplicationBoundType::Upper
+                } else {
+                    ImplicationBoundType::Lower
+                },
+                coefficient: coefs[i],
+                constant: constants[i],
+            })
+            .collect();
+
+        Ok(var_bounds)
+    }
+
     /// Run symmetry detection on the presolved model.
     /// Requires `presolve()` to have been called first.
     pub fn detect_symmetries(&mut self) -> Result<(), HighsStatus> {
@@ -2264,6 +2334,26 @@ pub struct Implication {
     pub bound_type: ImplicationBoundType,
     /// The bound value
     pub bound_value: f64,
+}
+
+/// A variable-bound implication (VUB/VLB) extracted during MIP presolve.
+///
+/// Describes a relation between a (continuous) target column `column` and a
+/// binary column `binary_column`:
+///   `bound_type == Upper`:  x_column <= coefficient * x_binary_column + constant`
+///   `bound_type == Lower`:  x_column >= coefficient * x_binary_column + constant`
+#[derive(Debug, Clone, PartialEq)]
+pub struct VarBound {
+    /// The (continuous) target column index (in the presolved model)
+    pub column: Col,
+    /// The binary column index (in the presolved model)
+    pub binary_column: Col,
+    /// Whether this is an upper (VUB) or lower (VLB) bound
+    pub bound_type: ImplicationBoundType,
+    /// The coefficient multiplying the binary variable
+    pub coefficient: f64,
+    /// The constant term
+    pub constant: f64,
 }
 
 /// Symmetry generator data from symmetry detection.

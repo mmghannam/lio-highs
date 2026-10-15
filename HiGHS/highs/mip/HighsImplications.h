@@ -102,6 +102,20 @@ class HighsImplications {
     return static_cast<HighsInt>(numImplications);
   }
 
+  int64_t getNumVarBounds() const { return numVarBounds; }
+
+  // Append all variable-bound implications (VUBs and VLBs) to flat output
+  // arrays. Each entry describes one relation of the form
+  //   isUpper==1:  x_col <= coef * x_bincol + constant
+  //   isUpper==0:  x_col >= coef * x_bincol + constant
+  // where `bincol` is a binary column. `vubs`/`vlbs` are indexed by the
+  // (continuous) target column `col`.
+  void collectVarBounds(std::vector<HighsInt>& col,
+                        std::vector<HighsInt>& bincol,
+                        std::vector<uint8_t>& isUpper,
+                        std::vector<double>& coef,
+                        std::vector<double>& constant) const;
+
   const std::vector<HighsDomainChange>& getImplications(HighsInt col, bool val,
                                                         bool& infeasible) {
     HighsInt loc = 2 * col + val;

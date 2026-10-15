@@ -390,6 +390,29 @@ bool HighsImplications::runProbing(HighsInt col, HighsInt& numReductions) {
   return false;
 }
 
+void HighsImplications::collectVarBounds(
+    std::vector<HighsInt>& col, std::vector<HighsInt>& bincol,
+    std::vector<uint8_t>& isUpper, std::vector<double>& coef,
+    std::vector<double>& constant) const {
+  HighsInt numcol = mipsolver.numCol();
+  for (HighsInt c = 0; c < numcol; c++) {
+    vubs[c].for_each([&](HighsInt b, const VarBound& vb) {
+      col.push_back(c);
+      bincol.push_back(b);
+      isUpper.push_back(1);
+      coef.push_back(vb.coef);
+      constant.push_back(vb.constant);
+    });
+    vlbs[c].for_each([&](HighsInt b, const VarBound& vb) {
+      col.push_back(c);
+      bincol.push_back(b);
+      isUpper.push_back(0);
+      coef.push_back(vb.coef);
+      constant.push_back(vb.constant);
+    });
+  }
+}
+
 void HighsImplications::addVUB(HighsInt col, HighsInt vubcol, double vubcoef,
                                double vubconstant) {
   // assume that VUBs do not have infinite coefficients and infinite constant

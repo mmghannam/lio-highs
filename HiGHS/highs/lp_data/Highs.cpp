@@ -2008,6 +2008,27 @@ HighsStatus Highs::getImplications(const HighsInt col, const HighsInt val,
   return HighsStatus::kOk;
 }
 
+HighsStatus Highs::getVarBounds(HighsInt* num_entries, HighsInt* col,
+                                HighsInt* bincol, HighsInt* isUpper,
+                                double* coef, double* constant) const {
+  if (!var_bound_data_.valid) {
+    highsLogUser(options_.log_options, HighsLogType::kError,
+                 "Variable-bound data not available\n");
+    return HighsStatus::kError;
+  }
+  *num_entries = var_bound_data_.num_entries;
+  if (col && bincol && isUpper && coef && constant) {
+    for (HighsInt i = 0; i < var_bound_data_.num_entries; ++i) {
+      col[i] = var_bound_data_.col[i];
+      bincol[i] = var_bound_data_.bincol[i];
+      isUpper[i] = var_bound_data_.isUpper[i];
+      coef[i] = var_bound_data_.coef[i];
+      constant[i] = var_bound_data_.constant[i];
+    }
+  }
+  return HighsStatus::kOk;
+}
+
 HighsStatus Highs::getCliques(HighsInt* num_cliques, HighsInt* num_entries,
                               HighsInt* clique_start, HighsInt* clique_col,
                               HighsInt* clique_val) const {
@@ -4062,6 +4083,16 @@ HighsPresolveStatus Highs::runPresolve(const bool force_lp_presolve,
         }
       }
       implications_data_.valid = true;
+      // Capture variable-bound implications (VUBs/VLBs) before solver goes out
+      // of scope. These are extracted from mixed binary/continuous rows during
+      // clique extraction and are not part of `implications_data_`.
+      var_bound_data_.clear();
+      mip_implications.collectVarBounds(
+          var_bound_data_.col, var_bound_data_.bincol, var_bound_data_.isUpper,
+          var_bound_data_.coef, var_bound_data_.constant);
+      var_bound_data_.num_entries =
+          static_cast<HighsInt>(var_bound_data_.col.size());
+      var_bound_data_.valid = true;
       // Capture cliques before solver goes out of scope
       auto& cliquetable = solver.mipdata_->cliquetable;
       if (cliquetable.numCliques() > 0) {
@@ -4188,6 +4219,7 @@ void Highs::invalidateSolverData() {
   invalidateEkk();
   invalidateIis();
   implications_data_.clear();
+  var_bound_data_.clear();
   cliques_data_.clear();
 }
 
@@ -4609,6 +4641,15 @@ HighsStatus Highs::callSolveMip() {
       }
     }
     implications_data_.valid = true;
+    // Capture variable-bound implications (VUBs/VLBs) before solver goes out
+    // of scope.
+    var_bound_data_.clear();
+    mip_implications.collectVarBounds(
+        var_bound_data_.col, var_bound_data_.bincol, var_bound_data_.isUpper,
+        var_bound_data_.coef, var_bound_data_.constant);
+    var_bound_data_.num_entries =
+        static_cast<HighsInt>(var_bound_data_.col.size());
+    var_bound_data_.valid = true;
     // Capture cliques before solver goes out of scope
     auto& cliquetable = solver.mipdata_->cliquetable;
     if (cliquetable.numCliques() > 0) {

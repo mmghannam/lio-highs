@@ -70,6 +70,33 @@ struct HighsImplicationsData {
 };
 
 /**
+ * @brief Data structure for storing variable-bound implications (VUBs/VLBs)
+ * discovered during MIP presolve. Each entry relates a (continuous) target
+ * column to a binary column:
+ *   isUpper: x_col <= coef * x_bincol + constant
+ *   else:    x_col >= coef * x_bincol + constant
+ */
+struct HighsVarBoundData {
+  bool valid = false;
+  HighsInt num_entries = 0;
+  std::vector<HighsInt> col;
+  std::vector<HighsInt> bincol;
+  std::vector<uint8_t> isUpper;
+  std::vector<double> coef;
+  std::vector<double> constant;
+
+  void clear() {
+    valid = false;
+    num_entries = 0;
+    col.clear();
+    bincol.clear();
+    isUpper.clear();
+    coef.clear();
+    constant.clear();
+  }
+};
+
+/**
  * @brief Data structure for storing symmetry information from detection
  */
 struct HighsSymmetryData {
@@ -640,6 +667,42 @@ class Highs {
                               HighsInt* implication_col = nullptr,
                               HighsInt* implication_boundtype = nullptr,
                               double* implication_boundval = nullptr) const;
+
+  /**
+   * @brief Check if variable-bound implication data is available from MIP
+   * presolve.
+   */
+  bool hasVarBounds() const { return var_bound_data_.valid; }
+
+  /**
+   * @brief Get the total number of variable-bound implications (VUBs + VLBs).
+   * Column indices refer to the presolved model.
+   */
+  HighsInt getNumVarBounds() const { return var_bound_data_.num_entries; }
+
+  /**
+   * @brief Get all variable-bound implications extracted during MIP presolve.
+   *
+   * Each entry describes a relation between a (continuous) column `col` and a
+   * binary column `bincol`:
+   *   isUpper==1:  x_col <= coef * x_bincol + constant
+   *   isUpper==0:  x_col >= coef * x_bincol + constant
+   * Column indices refer to the presolved model. Use
+   * getPresolveOrigColsIndex() to map between presolved and original indices.
+   *
+   * @param num_entries Output: number of entries returned
+   * @param col Array of target column indices (or nullptr)
+   * @param bincol Array of binary column indices (or nullptr)
+   * @param isUpper Array of bound types: 1=upper (VUB), 0=lower (VLB) (or
+   * nullptr)
+   * @param coef Array of coefficients (or nullptr)
+   * @param constant Array of constants (or nullptr)
+   * @return HighsStatus indicating success or failure
+   */
+  HighsStatus getVarBounds(HighsInt* num_entries, HighsInt* col = nullptr,
+                           HighsInt* bincol = nullptr,
+                           HighsInt* isUpper = nullptr, double* coef = nullptr,
+                           double* constant = nullptr) const;
 
   /**
    * @brief Check if clique data is available from MIP presolve
@@ -1809,6 +1872,7 @@ class Highs {
   HighsPresolveLog presolve_log_;
 
   HighsImplicationsData implications_data_;
+  HighsVarBoundData var_bound_data_;
   HighsCliquesData cliques_data_;
   HighsSymmetryData symmetry_data_;
 

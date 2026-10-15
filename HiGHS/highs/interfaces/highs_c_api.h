@@ -2404,6 +2404,53 @@ HighsInt Highs_implicationsCached(const void* highs, const HighsInt col,
                                   const HighsInt val);
 
 /**
+ * Check if variable-bound implication (VUB/VLB) data is available from MIP
+ * presolve.
+ *
+ * @param highs  A pointer to the Highs instance.
+ *
+ * @returns 1 if variable-bound data is available, 0 otherwise.
+ */
+HighsInt Highs_hasVarBounds(const void* highs);
+
+/**
+ * Get the total number of variable-bound implications (VUBs + VLBs)
+ * extracted during MIP presolve.
+ *
+ * @param highs  A pointer to the Highs instance.
+ *
+ * @returns The number of entries, or 0 if data is not available.
+ */
+HighsInt Highs_getNumVarBounds(const void* highs);
+
+/**
+ * Get all variable-bound implications (VUBs/VLBs) extracted during MIP
+ * presolve. Each entry relates a (continuous) target column `col` to a binary
+ * column `bincol`:
+ *   isUpper==1:  x_col <= coef * x_bincol + constant
+ *   isUpper==0:  x_col >= coef * x_bincol + constant
+ *
+ * Column indices refer to the presolved model. Use the presolve column index
+ * mapping to translate between presolved and original column indices.
+ *
+ * Call with NULL output arrays to query num_entries first, then allocate and
+ * call again.
+ *
+ * @param highs        A pointer to the Highs instance.
+ * @param num_entries  Output: number of entries.
+ * @param col          Array of target column indices (or NULL).
+ * @param bincol       Array of binary column indices (or NULL).
+ * @param isUpper      Array of 1 (VUB) / 0 (VLB) (or NULL).
+ * @param coef         Array of coefficients (or NULL).
+ * @param constant     Array of constants (or NULL).
+ *
+ * @returns A `kHighsStatus` constant indicating whether the call succeeded.
+ */
+HighsInt Highs_getVarBounds(const void* highs, HighsInt* num_entries,
+                            HighsInt* col, HighsInt* bincol,
+                            HighsInt* isUpper, double* coef, double* constant);
+
+/**
  * Check if clique data is available from MIP presolve.
  *
  * @param highs  A pointer to the Highs instance.
