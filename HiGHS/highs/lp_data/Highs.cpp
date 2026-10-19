@@ -2092,6 +2092,9 @@ HighsStatus Highs::detectSymmetries() {
 
   // numGenerators is the original count before orbitope compression
   symmetry_data_.num_generators = symmetries.numGenerators;
+  // numPerms is the number of generators that survive compression; only those
+  // are stored in `symmetries.permutations`.
+  symmetry_data_.num_permutations = symmetries.numPerms;
 
   if (symmetries.numGenerators == 0) {
     symmetry_data_.valid = true;
@@ -2271,11 +2274,13 @@ HighsStatus Highs::getSymmetryPermutations(HighsInt* perm_columns,
                  "Symmetry data not available\n");
     return HighsStatus::kError;
   }
-  if (symmetry_data_.num_generators == 0) return HighsStatus::kOk;
+  if (symmetry_data_.num_permutations == 0) return HighsStatus::kOk;
   for (HighsInt i = 0; i < symmetry_data_.num_columns; i++)
     perm_columns[i] = symmetry_data_.perm_columns[i];
+  // Only `num_permutations` blocks are valid: absorbed generators are dropped
+  // from the buffer, so using num_generators here would read past its end.
   const HighsInt total =
-      symmetry_data_.num_generators * symmetry_data_.num_columns;
+      symmetry_data_.num_permutations * symmetry_data_.num_columns;
   for (HighsInt i = 0; i < total; i++)
     permutations[i] = symmetry_data_.permutations[i];
   return HighsStatus::kOk;

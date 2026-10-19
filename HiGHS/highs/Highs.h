@@ -101,7 +101,12 @@ struct HighsVarBoundData {
  */
 struct HighsSymmetryData {
   bool valid = false;
+  // Number of symmetry generators found before orbitope compression. This is
+  // informational only: absorbed generators are dropped from `permutations`.
   HighsInt num_generators = 0;
+  // Number of generators that actually survive in `permutations` (HiGHS's
+  // `HighsSymmetries::numPerms`). Always <= num_generators.
+  HighsInt num_permutations = 0;
   HighsInt num_columns = 0;  // number of columns involved in permutations
   // orbit[col] = orbit representative for each presolved model column
   // (-1 if column is not involved in any symmetry)
@@ -110,7 +115,7 @@ struct HighsSymmetryData {
   std::vector<HighsInt> orbit_size;
   // columns involved in permutations (indices into presolved model)
   std::vector<HighsInt> perm_columns;
-  // generator permutations, flat array of size num_generators * num_columns
+  // generator permutations, flat array of size num_permutations * num_columns
   // permutations[g * num_columns + i] = image of perm_columns[i] under
   // generator g
   std::vector<HighsInt> permutations;
@@ -134,6 +139,7 @@ struct HighsSymmetryData {
   void clear() {
     valid = false;
     num_generators = 0;
+    num_permutations = 0;
     num_columns = 0;
     orbit.clear();
     orbit_size.clear();
@@ -770,6 +776,15 @@ class Highs {
    */
   HighsInt getSymmetryNumGenerators() const {
     return symmetry_data_.num_generators;
+  }
+
+  /**
+   * @brief Get the number of symmetry generators that survive orbitope
+   * compression, i.e. the number of permutation blocks stored in
+   * `getSymmetryPermutations`. Always <= `getSymmetryNumGenerators()`.
+   */
+  HighsInt getSymmetryNumPermutations() const {
+    return symmetry_data_.num_permutations;
   }
 
   /**

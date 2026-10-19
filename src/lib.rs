@@ -1102,6 +1102,12 @@ impl Model {
         unsafe { Highs_getSymmetryNumGenerators(self.highs.ptr()) as usize }
     }
 
+    /// Number of generators that survive orbitope compression, i.e. the number
+    /// of permutation blocks actually stored. Always <= `symmetry_num_generators`.
+    pub fn symmetry_num_permutations(&self) -> usize {
+        unsafe { Highs_getSymmetryNumPermutations(self.highs.ptr()) as usize }
+    }
+
     /// Get the number of columns involved in symmetry permutations
     pub fn symmetry_num_columns(&self) -> usize {
         unsafe { Highs_getSymmetryNumColumns(self.highs.ptr()) as usize }
@@ -1122,7 +1128,10 @@ impl Model {
     /// Returns `SymmetryData` containing the generator permutations and
     /// the columns they act on.
     pub fn get_symmetry_generators(&self) -> Result<SymmetryData, HighsStatus> {
-        let num_generators = self.symmetry_num_generators();
+        // Generators absorbed into orbitopes are dropped from the permutation
+        // buffer, so the buffer holds `num_permutations` blocks, not
+        // `num_generators`. Using the generator count here would over-read.
+        let num_generators = self.symmetry_num_permutations();
         let num_columns = self.symmetry_num_columns();
 
         if num_generators == 0 || num_columns == 0 {
@@ -2144,6 +2153,12 @@ impl SolvedModel {
         unsafe { Highs_getSymmetryNumGenerators(self.highs.ptr()) as usize }
     }
 
+    /// Number of generators that survive orbitope compression, i.e. the number
+    /// of permutation blocks actually stored. Always <= `symmetry_num_generators`.
+    pub fn symmetry_num_permutations(&self) -> usize {
+        unsafe { Highs_getSymmetryNumPermutations(self.highs.ptr()) as usize }
+    }
+
     /// Get the number of columns involved in symmetry permutations
     pub fn symmetry_num_columns(&self) -> usize {
         unsafe { Highs_getSymmetryNumColumns(self.highs.ptr()) as usize }
@@ -2160,7 +2175,10 @@ impl SolvedModel {
 
     /// Get the symmetry generator permutations.
     pub fn get_symmetry_generators(&self) -> Result<SymmetryData, HighsStatus> {
-        let num_generators = self.symmetry_num_generators();
+        // Generators absorbed into orbitopes are dropped from the permutation
+        // buffer, so the buffer holds `num_permutations` blocks, not
+        // `num_generators`. Using the generator count here would over-read.
+        let num_generators = self.symmetry_num_permutations();
         let num_columns = self.symmetry_num_columns();
 
         if num_generators == 0 || num_columns == 0 {

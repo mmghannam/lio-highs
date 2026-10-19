@@ -2519,6 +2519,21 @@ HighsInt Highs_hasSymmetries(const void* highs);
 HighsInt Highs_getSymmetryNumGenerators(const void* highs);
 
 /**
+ * Get the number of symmetry generators that survive orbitope compression.
+ *
+ * Generators absorbed into an orbitope are dropped from the permutation
+ * buffer, so this may be smaller than `Highs_getSymmetryNumGenerators`.
+ * Use this value, not the generator count, to size the `permutations` array
+ * passed to `Highs_getSymmetryPermutations`.
+ *
+ * @param highs  A pointer to the Highs instance.
+ *
+ * @returns The number of stored permutations, or 0 if symmetry data is not
+ *          available.
+ */
+HighsInt Highs_getSymmetryNumPermutations(const void* highs);
+
+/**
  * Get the number of columns involved in symmetry permutations.
  *
  * @param highs  A pointer to the Highs instance.
@@ -2543,13 +2558,14 @@ HighsInt Highs_getSymmetryOrbit(const void* highs, HighsInt* orbit);
 /**
  * Get the symmetry generator permutations.
  *
- * Call `Highs_getSymmetryNumGenerators` and `Highs_getSymmetryNumColumns`
+ * Call `Highs_getSymmetryNumPermutations` and `Highs_getSymmetryNumColumns`
  * first to determine the required array sizes.
  *
  * @param highs          A pointer to the Highs instance.
  * @param perm_columns   Array of size num_columns to receive the column
  *                       indices involved in permutations.
- * @param permutations   Flat array of size num_generators * num_columns.
+ * @param permutations   Flat array of size
+ *                       `Highs_getSymmetryNumPermutations() * num_columns`.
  *                       permutations[g * num_columns + i] is the image of
  *                       perm_columns[i] under generator g.
  *

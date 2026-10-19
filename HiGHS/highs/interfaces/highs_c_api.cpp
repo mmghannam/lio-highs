@@ -1430,6 +1430,10 @@ HighsInt Highs_getSymmetryNumGenerators(const void* highs) {
   return ((Highs*)highs)->getSymmetryNumGenerators();
 }
 
+HighsInt Highs_getSymmetryNumPermutations(const void* highs) {
+  return ((Highs*)highs)->getSymmetryNumPermutations();
+}
+
 HighsInt Highs_getSymmetryNumColumns(const void* highs) {
   return ((Highs*)highs)->getSymmetryNumColumns();
 }
