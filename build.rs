@@ -17,9 +17,7 @@ fn generate_bindings(include_path: &std::path::Path) {
             .layout_tests(false);
     }
 
-    let c_bindings = builder
-        .generate()
-        .expect("Unable to generate bindings");
+    let c_bindings = builder.generate().expect("Unable to generate bindings");
 
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     c_bindings
@@ -83,16 +81,18 @@ fn main() {
             let home = env::var("HOME")
                 .or_else(|_| env::var("USERPROFILE"))
                 .expect("cannot determine home directory");
-            let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
+            let ext = if cfg!(target_os = "macos") {
+                "dylib"
+            } else {
+                "so"
+            };
             format!("{home}/.inst-count/libInstructionCountPass.{ext}")
         });
         // Use CMAKE_*_FLAGS_RELEASE so the pass isn't loaded during CMake's
         // compiler detection (try_compile), which would fail to link __inst_count_add.
         let flag = format!("-fpass-plugin={plugin}");
-        dst.define("CMAKE_C_FLAGS_RELEASE",
-                   format!("-O3 -DNDEBUG {flag}"));
-        dst.define("CMAKE_CXX_FLAGS_RELEASE",
-                   format!("-O3 -DNDEBUG {flag}"));
+        dst.define("CMAKE_C_FLAGS_RELEASE", format!("-O3 -DNDEBUG {flag}"));
+        dst.define("CMAKE_CXX_FLAGS_RELEASE", format!("-O3 -DNDEBUG {flag}"));
         // Allow undefined __inst_count_add during HiGHS linking — it will be
         // resolved when the final Rust binary links the inst-count runtime.
         if cfg!(target_os = "macos") {
@@ -119,8 +119,8 @@ fn main() {
     // PER_FUNCTION to rucks_instrument, which routes every loop increment into a
     // per-function table (see src/rucks.rs `rucks_pf` module).
     if cfg!(feature = "rucks") {
-        let prefix = locate_rucks_prefix()
-            .expect("`rucks` binary not on PATH; install rucks first");
+        let prefix =
+            locate_rucks_prefix().expect("`rucks` binary not on PATH; install rucks first");
         dst.define("LIO_RUCKS", "ON");
         if cfg!(feature = "rucks-pf") {
             dst.define("LIO_RUCKS_PER_FUNCTION", "ON");

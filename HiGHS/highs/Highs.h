@@ -115,6 +115,22 @@ struct HighsSymmetryData {
   // generator g
   std::vector<HighsInt> permutations;
 
+  // Number of full orbitopes detected. Generators that are absorbed into an
+  // orbitope are removed from perm_columns/permutations, so an orbitope can be
+  // the only remaining representation of a symmetry.
+  HighsInt num_orbitopes = 0;
+  // Per-orbitope number of columns (rowLength) and number of rows.
+  std::vector<HighsInt> orbitope_row_length;
+  std::vector<HighsInt> orbitope_num_rows;
+  // Offset of each orbitope's block inside orbitope_matrix, size
+  // num_orbitopes + 1. Block o has
+  //   orbitope_row_length[o] * orbitope_num_rows[o]
+  // entries, column-major, so entry(i, j) of orbitope o is
+  //   orbitope_matrix[offset[o] + i + j * orbitope_num_rows[o]]
+  std::vector<HighsInt> orbitope_matrix_offset;
+  // Concatenated orbitope matrices.
+  std::vector<HighsInt> orbitope_matrix;
+
   void clear() {
     valid = false;
     num_generators = 0;
@@ -123,6 +139,11 @@ struct HighsSymmetryData {
     orbit_size.clear();
     perm_columns.clear();
     permutations.clear();
+    num_orbitopes = 0;
+    orbitope_row_length.clear();
+    orbitope_num_rows.clear();
+    orbitope_matrix_offset.clear();
+    orbitope_matrix.clear();
   }
 };
 
@@ -777,6 +798,37 @@ class Highs {
    */
   HighsStatus getSymmetryPermutations(HighsInt* perm_columns,
                                       HighsInt* permutations) const;
+
+  /**
+   * @brief Get the number of full orbitopes detected.
+   *
+   * HiGHS compresses symmetry generators into orbitopes; a generator absorbed
+   * into an orbitope is removed from the permutation arrays above, so an
+   * orbitope may be the only representation of a symmetry that remains.
+   */
+  HighsInt getNumOrbitopes() const { return symmetry_data_.num_orbitopes; }
+
+  /**
+   * @brief Get the dimensions of each orbitope.
+   *
+   * @param row_length  Array of size getNumOrbitopes() to fill
+   * @param num_rows    Array of size getNumOrbitopes() to fill
+   */
+  HighsStatus getOrbitopeDims(HighsInt* row_length, HighsInt* num_rows) const;
+
+  /**
+   * @brief Get the total number of entries in all orbitope matrices.
+   */
+  HighsInt getOrbitopeMatrixSize() const {
+    return static_cast<HighsInt>(symmetry_data_.orbitope_matrix.size());
+  }
+
+  /**
+   * @brief Get the concatenated orbitope matrices.
+   *
+   * @param matrix  Array of size getOrbitopeMatrixSize() to fill
+   */
+  HighsStatus getOrbitopeMatrix(HighsInt* matrix) const;
 
   /**
    * @brief Get the number of presolve reductions in the postsolve stack.

@@ -1445,6 +1445,23 @@ HighsInt Highs_getSymmetryPermutations(const void* highs,
                                                             permutations);
 }
 
+HighsInt Highs_getNumOrbitopes(const void* highs) {
+  return (HighsInt)((Highs*)highs)->getNumOrbitopes();
+}
+
+HighsInt Highs_getOrbitopeDims(const void* highs, HighsInt* row_length,
+                               HighsInt* num_rows) {
+  return (HighsInt)((Highs*)highs)->getOrbitopeDims(row_length, num_rows);
+}
+
+HighsInt Highs_getOrbitopeMatrixSize(const void* highs) {
+  return (HighsInt)((Highs*)highs)->getOrbitopeMatrixSize();
+}
+
+HighsInt Highs_getOrbitopeMatrix(const void* highs, HighsInt* matrix) {
+  return (HighsInt)((Highs*)highs)->getOrbitopeMatrix(matrix);
+}
+
 HighsInt Highs_getNumPresolveReductions(const void* highs) {
   return ((Highs*)highs)->getNumPresolveReductions();
 }

@@ -2199,7 +2199,56 @@ HighsStatus Highs::detectSymmetries() {
     }
   }
 
+  // Expose the orbitopes. A generator that was compressed into an orbitope is
+  // absent from perm_columns/permutations, so for models whose symmetries are
+  // entirely orbitope-shaped this is the only usable representation.
+  symmetry_data_.num_orbitopes =
+      static_cast<HighsInt>(symmetries.orbitopes.size());
+  symmetry_data_.orbitope_row_length.clear();
+  symmetry_data_.orbitope_num_rows.clear();
+  symmetry_data_.orbitope_matrix_offset.clear();
+  symmetry_data_.orbitope_matrix.clear();
+  symmetry_data_.orbitope_matrix_offset.reserve(
+      symmetries.orbitopes.size() + 1);
+  symmetry_data_.orbitope_matrix_offset.push_back(0);
+  for (const HighsOrbitopeMatrix& orbitope : symmetries.orbitopes) {
+    symmetry_data_.orbitope_row_length.push_back(orbitope.rowLength);
+    symmetry_data_.orbitope_num_rows.push_back(orbitope.numRows);
+    symmetry_data_.orbitope_matrix.insert(
+        symmetry_data_.orbitope_matrix.end(), orbitope.matrix.begin(),
+        orbitope.matrix.end());
+    symmetry_data_.orbitope_matrix_offset.push_back(
+        static_cast<HighsInt>(symmetry_data_.orbitope_matrix.size()));
+  }
+
   symmetry_data_.valid = true;
+  return HighsStatus::kOk;
+}
+
+HighsStatus Highs::getOrbitopeDims(HighsInt* row_length,
+                                    HighsInt* num_rows) const {
+  if (!symmetry_data_.valid) {
+    highsLogUser(options_.log_options, HighsLogType::kError,
+                 "Symmetry data not available\n");
+    return HighsStatus::kError;
+  }
+  for (HighsInt i = 0; i < symmetry_data_.num_orbitopes; i++) {
+    row_length[i] = symmetry_data_.orbitope_row_length[i];
+    num_rows[i] = symmetry_data_.orbitope_num_rows[i];
+  }
+  return HighsStatus::kOk;
+}
+
+HighsStatus Highs::getOrbitopeMatrix(HighsInt* matrix) const {
+  if (!symmetry_data_.valid) {
+    highsLogUser(options_.log_options, HighsLogType::kError,
+                 "Symmetry data not available\n");
+    return HighsStatus::kError;
+  }
+  const HighsInt total =
+      static_cast<HighsInt>(symmetry_data_.orbitope_matrix.size());
+  for (HighsInt i = 0; i < total; i++)
+    matrix[i] = symmetry_data_.orbitope_matrix[i];
   return HighsStatus::kOk;
 }
 

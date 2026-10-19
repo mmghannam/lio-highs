@@ -485,9 +485,21 @@ impl Model {
     }
 
     /// Set the basis for the model (warm-start).
-    pub fn set_basis(&mut self, col_status: &[BasisStatus], row_status: &[BasisStatus]) -> Result<(), HighsStatus> {
-        assert_eq!(col_status.len(), self.num_cols(), "col_status length must match number of columns");
-        assert_eq!(row_status.len(), self.num_rows(), "row_status length must match number of rows");
+    pub fn set_basis(
+        &mut self,
+        col_status: &[BasisStatus],
+        row_status: &[BasisStatus],
+    ) -> Result<(), HighsStatus> {
+        assert_eq!(
+            col_status.len(),
+            self.num_cols(),
+            "col_status length must match number of columns"
+        );
+        assert_eq!(
+            row_status.len(),
+            self.num_rows(),
+            "row_status length must match number of rows"
+        );
 
         let col_status_highs: Vec<HighsInt> = col_status.iter().map(|&s| s.into()).collect();
         let row_status_highs: Vec<HighsInt> = row_status.iter().map(|&s| s.into()).collect();
@@ -1101,9 +1113,7 @@ impl Model {
     pub fn get_symmetry_orbit(&self) -> Result<Vec<i32>, HighsStatus> {
         let num_col = unsafe { Highs_getPresolvedNumCol(self.highs.ptr()) } as usize;
         let mut orbit: Vec<HighsInt> = vec![0; num_col];
-        let status = unsafe {
-            Highs_getSymmetryOrbit(self.highs.ptr(), orbit.as_mut_ptr())
-        };
+        let status = unsafe { Highs_getSymmetryOrbit(self.highs.ptr(), orbit.as_mut_ptr()) };
         try_handle_status(status, "getting symmetry orbit")?;
         Ok(orbit.into_iter().map(|x| x as i32).collect())
     }
@@ -1140,6 +1150,55 @@ impl Model {
             perm_columns: perm_columns.into_iter().map(|x| x as Col).collect(),
             permutations: permutations.into_iter().map(|x| x as Col).collect(),
         })
+    }
+
+    /// Get the full orbitopes detected by symmetry detection.
+    ///
+    /// Requires `detect_symmetries()` to have been called first.
+    pub fn get_orbitopes(&self) -> Result<Vec<OrbitopeData>, HighsStatus> {
+        let num_orbitopes = unsafe { Highs_getNumOrbitopes(self.highs.ptr()) } as usize;
+        if num_orbitopes == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut row_length: Vec<HighsInt> = vec![0; num_orbitopes];
+        let mut num_rows: Vec<HighsInt> = vec![0; num_orbitopes];
+        let status = unsafe {
+            Highs_getOrbitopeDims(
+                self.highs.ptr(),
+                row_length.as_mut_ptr(),
+                num_rows.as_mut_ptr(),
+            )
+        };
+        try_handle_status(status, "getting orbitope dimensions")?;
+
+        let total = unsafe { Highs_getOrbitopeMatrixSize(self.highs.ptr()) } as usize;
+        let mut matrix: Vec<HighsInt> = vec![0; total];
+        if total > 0 {
+            let status = unsafe { Highs_getOrbitopeMatrix(self.highs.ptr(), matrix.as_mut_ptr()) };
+            try_handle_status(status, "getting orbitope matrices")?;
+        }
+
+        let mut orbitopes = Vec::with_capacity(num_orbitopes);
+        let mut offset = 0usize;
+        for o in 0..num_orbitopes {
+            let rl = row_length[o] as usize;
+            let nr = num_rows[o] as usize;
+            let len = rl * nr;
+            if offset + len > matrix.len() {
+                return Err(HighsStatus::Error);
+            }
+            orbitopes.push(OrbitopeData {
+                num_rows: nr,
+                row_length: rl,
+                matrix: matrix[offset..offset + len]
+                    .iter()
+                    .map(|&c| c as Col)
+                    .collect(),
+            });
+            offset += len;
+        }
+        Ok(orbitopes)
     }
 
     /// Get the number of presolve reductions in the postsolve stack
@@ -1823,12 +1882,7 @@ impl SolvedModel {
     }
 
     /// Get reduced row (e_i * B^{-1} * A) into caller-provided buffers.
-    pub fn get_reduced_row_into(
-        &self,
-        row: Row,
-        dense: &mut Vec<f64>,
-        index: &mut Vec<HighsInt>,
-    ) {
+    pub fn get_reduced_row_into(&self, row: Row, dense: &mut Vec<f64>, index: &mut Vec<HighsInt>) {
         dense.resize(self.num_cols(), 0.0);
         index.resize(self.num_cols(), 0);
         let mut num_nz: HighsInt = 0;
@@ -2099,9 +2153,7 @@ impl SolvedModel {
     pub fn get_symmetry_orbit(&self) -> Result<Vec<i32>, HighsStatus> {
         let num_col = unsafe { Highs_getPresolvedNumCol(self.highs.ptr()) } as usize;
         let mut orbit: Vec<HighsInt> = vec![0; num_col];
-        let status = unsafe {
-            Highs_getSymmetryOrbit(self.highs.ptr(), orbit.as_mut_ptr())
-        };
+        let status = unsafe { Highs_getSymmetryOrbit(self.highs.ptr(), orbit.as_mut_ptr()) };
         try_handle_status(status, "getting symmetry orbit")?;
         Ok(orbit.into_iter().map(|x| x as i32).collect())
     }
@@ -2368,6 +2420,34 @@ pub struct SymmetryData {
     pub permutations: Vec<Col>,
 }
 
+/// A full orbitope detected by HiGHS symmetry detection.
+///
+/// HiGHS compresses symmetry generators into orbitopes; a generator absorbed
+/// into an orbitope is removed from the permutation arrays returned by
+/// [`Highs::get_symmetry_generators`], so an orbitope can be the only
+/// representation of a symmetry that remains.
+///
+/// The matrix has `num_rows` rows and `row_length` columns, stored column-major
+/// exactly as HiGHS stores it: `entry(i, j) == matrix[i + j * num_rows]`, and
+/// each entry is a column index into the presolved model.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OrbitopeData {
+    /// Number of rows.
+    pub num_rows: usize,
+    /// Number of columns (entries per row).
+    pub row_length: usize,
+    /// Column-major matrix of presolved column indices, length
+    /// `num_rows * row_length`.
+    pub matrix: Vec<Col>,
+}
+
+impl OrbitopeData {
+    /// Matrix entry `(i, j)`.
+    pub fn entry(&self, i: usize, j: usize) -> Col {
+        self.matrix[i + j * self.num_rows]
+    }
+}
+
 /// Type of presolve reduction
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PresolveReductionType {
@@ -2527,19 +2607,39 @@ impl std::fmt::Display for PresolveReduction {
                 write!(f, "RedundantRow: row {}", self.row)?;
             }
             PresolveReductionType::SingletonRow => {
-                write!(f, "SingletonRow: col {} in row {} (coef {})", self.col, self.row, self.value)?;
+                write!(
+                    f,
+                    "SingletonRow: col {} in row {} (coef {})",
+                    self.col, self.row, self.value
+                )?;
             }
             PresolveReductionType::DoubletonEquation => {
-                write!(f, "DoubletonEquation: col {} substituted via row {} (rhs {})", self.col, self.row, self.value)?;
+                write!(
+                    f,
+                    "DoubletonEquation: col {} substituted via row {} (rhs {})",
+                    self.col, self.row, self.value
+                )?;
             }
             PresolveReductionType::LinearTransform => {
-                write!(f, "LinearTransform: col {} (scale {})", self.col, self.value)?;
+                write!(
+                    f,
+                    "LinearTransform: col {} (scale {})",
+                    self.col, self.value
+                )?;
             }
             PresolveReductionType::FreeColSubstitution => {
-                write!(f, "FreeColSubstitution: col {} in row {} (rhs {})", self.col, self.row, self.value)?;
+                write!(
+                    f,
+                    "FreeColSubstitution: col {} in row {} (rhs {})",
+                    self.col, self.row, self.value
+                )?;
             }
             PresolveReductionType::EqualityRowAddition => {
-                write!(f, "EqualityRowAddition: row {} (scale {})", self.row, self.value)?;
+                write!(
+                    f,
+                    "EqualityRowAddition: row {} (scale {})",
+                    self.row, self.value
+                )?;
             }
             PresolveReductionType::EqualityRowAdditions => {
                 write!(f, "EqualityRowAdditions: eq row {}", self.row)?;
@@ -2551,19 +2651,35 @@ impl std::fmt::Display for PresolveReduction {
                 write!(f, "ForcingColumn: col {} (bound {})", self.col, self.value)?;
             }
             PresolveReductionType::ForcingColumnRemovedRow => {
-                write!(f, "ForcingColumnRemovedRow: row {} (rhs {})", self.row, self.value)?;
+                write!(
+                    f,
+                    "ForcingColumnRemovedRow: row {} (rhs {})",
+                    self.row, self.value
+                )?;
             }
             PresolveReductionType::DuplicateRow => {
                 write!(f, "DuplicateRow: row {} (scale {})", self.row, self.value)?;
             }
             PresolveReductionType::DuplicateColumn => {
-                write!(f, "DuplicateColumn: col {} (scale {})", self.col, self.value)?;
+                write!(
+                    f,
+                    "DuplicateColumn: col {} (scale {})",
+                    self.col, self.value
+                )?;
             }
             PresolveReductionType::SlackColSubstitution => {
-                write!(f, "SlackColSubstitution: col {} in row {} (rhs {})", self.col, self.row, self.value)?;
+                write!(
+                    f,
+                    "SlackColSubstitution: col {} in row {} (rhs {})",
+                    self.col, self.row, self.value
+                )?;
             }
             PresolveReductionType::Unknown(v) => {
-                write!(f, "Unknown({}): col {} row {} value {}", v, self.col, self.row, self.value)?;
+                write!(
+                    f,
+                    "Unknown({}): col {} row {} value {}",
+                    v, self.col, self.row, self.value
+                )?;
             }
         }
         write!(f, " [{}]", self.source)
@@ -2619,9 +2735,14 @@ mod test {
         // MIP whose LP relaxation is fractional, so separation is exercised
         let build = || {
             let mut pb = RowProblem::default();
-            let cols: Vec<Col> = (0..10).map(|i| pb.add_integer_column(5. + (i % 3) as f64, 0..=1)).collect();
-            let weights: Vec<(Col, f64)> =
-                cols.iter().enumerate().map(|(i, &c)| (c, 3. + (i % 4) as f64)).collect();
+            let cols: Vec<Col> = (0..10)
+                .map(|i| pb.add_integer_column(5. + (i % 3) as f64, 0..=1))
+                .collect();
+            let weights: Vec<(Col, f64)> = cols
+                .iter()
+                .enumerate()
+                .map(|(i, &c)| (c, 3. + (i % 4) as f64))
+                .collect();
             pb.add_row(..=13.5, &weights);
             pb.optimise(Sense::Maximise)
         };
@@ -2744,7 +2865,9 @@ mod test {
         model.set_option("output_flag", false);
 
         model.presolve();
-        model.detect_symmetries().expect("detect_symmetries should succeed");
+        model
+            .detect_symmetries()
+            .expect("detect_symmetries should succeed");
 
         assert!(model.has_symmetries(), "should have symmetries");
         let num_gen = model.symmetry_num_generators();
@@ -2807,7 +2930,10 @@ mod test {
         assert_eq!(solved.status(), HighsModelStatus::Optimal);
 
         let loops = crate::rucks::loop_count();
-        assert!(loops > 0, "expected rucks loop counter > 0 after solve, got {loops}");
+        assert!(
+            loops > 0,
+            "expected rucks loop counter > 0 after solve, got {loops}"
+        );
     }
 
     #[test]
@@ -2828,9 +2954,15 @@ mod test {
         assert_eq!(solved.status(), HighsModelStatus::Optimal);
 
         let counts = crate::rucks::rucks_pf::counts();
-        assert!(!counts.is_empty(), "expected per-function counts after solve");
+        assert!(
+            !counts.is_empty(),
+            "expected per-function counts after solve"
+        );
         let total: u64 = counts.iter().map(|(_, c)| c).sum();
-        assert!(total > 0, "expected > 0 attributed loop iterations, got {total}");
+        assert!(
+            total > 0,
+            "expected > 0 attributed loop iterations, got {total}"
+        );
         // counts() reads the calling thread's table, so the sum matches the
         // calling thread's total. loop_count() would additionally include any
         // other test thread's counted work (the harness runs tests in
@@ -2877,8 +3009,11 @@ mod test {
             assert!(r.col >= -1);
             assert!(r.row >= -1);
             // At least one of col/row should be set
-            assert!(r.col >= 0 || r.row >= 0,
-                    "reduction {} should affect at least a col or row", r);
+            assert!(
+                r.col >= 0 || r.row >= 0,
+                "reduction {} should affect at least a col or row",
+                r
+            );
         }
 
         // Check Display works

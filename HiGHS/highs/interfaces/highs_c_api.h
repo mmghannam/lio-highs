@@ -2560,6 +2560,52 @@ HighsInt Highs_getSymmetryPermutations(const void* highs,
                                        HighsInt* permutations);
 
 /**
+ * Get the number of full orbitopes detected on the presolved model.
+ *
+ * HiGHS compresses symmetry generators into orbitopes, and a generator that is
+ * absorbed into an orbitope is removed from the permutation arrays. An orbitope
+ * may therefore be the only representation of a symmetry that remains.
+ *
+ * @param highs     Pointer to the Highs instance
+ * @return The number of orbitopes
+ */
+HighsInt Highs_getNumOrbitopes(const void* highs);
+
+/**
+ * Get the dimensions of each orbitope.
+ *
+ * @param highs       Pointer to the Highs instance
+ * @param row_length  Array of size Highs_getNumOrbitopes() to fill
+ * @param num_rows    Array of size Highs_getNumOrbitopes() to fill
+ * @return kHighsStatusOk on success
+ */
+HighsInt Highs_getOrbitopeDims(const void* highs, HighsInt* row_length,
+                               HighsInt* num_rows);
+
+/**
+ * Get the total number of entries in all orbitope matrices.
+ *
+ * @param highs     Pointer to the Highs instance
+ * @return The total number of matrix entries
+ */
+HighsInt Highs_getOrbitopeMatrixSize(const void* highs);
+
+/**
+ * Get the concatenated orbitope matrices.
+ *
+ * Orbitope o occupies
+ *   matrix[offset[o] .. offset[o] + row_length[o] * num_rows[o])
+ * stored column-major, so entry (i, j) is
+ *   matrix[offset[o] + i + j * num_rows[o]].
+ * Use Highs_getOrbitopeDims for the dimensions.
+ *
+ * @param highs     Pointer to the Highs instance
+ * @param matrix    Array of size Highs_getOrbitopeMatrixSize() to fill
+ * @return kHighsStatusOk on success
+ */
+HighsInt Highs_getOrbitopeMatrix(const void* highs, HighsInt* matrix);
+
+/**
  * Get the number of presolve reductions in the postsolve stack.
  * Requires `Highs_presolve` to have been called first.
  *
