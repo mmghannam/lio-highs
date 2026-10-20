@@ -83,6 +83,8 @@ impl TryFrom<c_int> for HighsModelStatus {
             MODEL_STATUS_REACHED_TIME_LIMIT => Ok(Self::ReachedTimeLimit),
             MODEL_STATUS_REACHED_ITERATION_LIMIT => Ok(Self::ReachedIterationLimit),
             MODEL_STATUS_UNKNOWN => Ok(Self::Unknown),
+            MODEL_STATUS_SOLUTION_LIMIT => Ok(Self::SolutionLimit),
+            MODEL_STATUS_INTERRUPT => Ok(Self::Interrupt),
             n => Err(InvalidStatus(n)),
         }
     }
