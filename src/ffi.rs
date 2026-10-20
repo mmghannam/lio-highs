@@ -21,8 +21,10 @@ pub const MODEL_STATUS_OBJECTIVE_TARGET: HighsInt = 12;
 pub const MODEL_STATUS_REACHED_TIME_LIMIT: HighsInt = 13;
 pub const MODEL_STATUS_REACHED_ITERATION_LIMIT: HighsInt = 14;
 pub const MODEL_STATUS_UNKNOWN: HighsInt = 15;
+pub const MODEL_STATUS_SOLUTION_LIMIT: HighsInt = 16;
+pub const MODEL_STATUS_INTERRUPT: HighsInt = 17;
 pub const MODEL_STATUS_MIN: HighsInt = MODEL_STATUS_NOTSET;
-pub const MODEL_STATUS_MAX: HighsInt = MODEL_STATUS_UNKNOWN;
+pub const MODEL_STATUS_MAX: HighsInt = MODEL_STATUS_INTERRUPT;
 
 pub const STATUS_OK: HighsInt = 0;
 pub const STATUS_WARNING: HighsInt = 1;

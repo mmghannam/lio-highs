@@ -40,6 +40,10 @@ pub enum HighsModelStatus {
     ReachedIterationLimit = MODEL_STATUS_REACHED_ITERATION_LIMIT as isize,
     /// Unknown model status
     Unknown = MODEL_STATUS_UNKNOWN as isize,
+    /// Reached the solution limit
+    SolutionLimit = MODEL_STATUS_SOLUTION_LIMIT as isize,
+    /// Interrupted by the user callback (used to enforce work limits)
+    Interrupt = MODEL_STATUS_INTERRUPT as isize,
 }
 
 /// This error should never happen: an unexpected status was returned

@@ -33,6 +33,12 @@ use std::num::TryFromIntError;
 use std::ops::{Bound, Index, RangeBounds};
 use std::os::raw::c_int;
 use std::ptr::null_mut;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// `HighsCallbackType::kCallbackSimplexInterrupt`, from `highs_c_api.h`.
+/// Bindgen does not emit it because no generated declaration references it.
+#[allow(non_upper_case_globals)]
+const kHighsCallbackSimplexInterrupt: HighsInt = 1;
 
 pub use ffi::HighsInt;
 pub use matrix_col::{ColMatrix, Row};
@@ -1278,14 +1284,50 @@ impl From<SolvedModel> for Model {
     }
 }
 
-/// Logging callback that forwards HiGHS log messages to the Rust `log` crate.
+/// Absolute loop count at which the running simplex is interrupted, or `0`
+/// when no work limit is armed.
+///
+/// Read from the simplex interrupt callback. The loop counter is the one
+/// maintained by `rucks` inside HiGHS, so the limit is a deterministic,
+/// machine-independent amount of work rather than a wall-clock budget.
+static SIMPLEX_WORK_LIMIT: AtomicU64 = AtomicU64::new(0);
+
+/// Arm (or with `0`, disarm) the simplex work limit.
+///
+/// The value is an *absolute* count of HiGHS loop iterations, matching
+/// [`rucks::loop_count`]. HiGHS checks it from `HEkk::bailout`, which runs on
+/// every simplex iteration, and interrupts the solve when it is reached.
+///
+/// Only meaningful with the `rucks` feature: without instrumentation there is
+/// no loop counter and the limit is ignored.
+pub fn set_simplex_work_limit(limit: u64) {
+    SIMPLEX_WORK_LIMIT.store(limit, Ordering::Relaxed);
+}
+
+/// The currently armed simplex work limit, or `0`.
+pub fn simplex_work_limit() -> u64 {
+    SIMPLEX_WORK_LIMIT.load(Ordering::Relaxed)
+}
+
+/// HiGHS callback. Handles the simplex-interrupt type to enforce the work
+/// limit, and forwards log messages to the Rust `log` crate.
 unsafe extern "C" fn highs_log_callback(
-    _callback_type: c_int,
+    callback_type: c_int,
     message: *const c_char,
     data_out: *const HighsCallbackDataOut,
-    _data_in: *mut HighsCallbackDataIn,
+    data_in: *mut HighsCallbackDataIn,
     _user_data: *mut c_void,
 ) {
+    if callback_type == kHighsCallbackSimplexInterrupt {
+        let limit = SIMPLEX_WORK_LIMIT.load(Ordering::Relaxed);
+        if limit != 0 && !data_in.is_null() {
+            #[cfg(feature = "rucks")]
+            if rucks::loop_count() >= limit {
+                (*data_in).user_interrupt = 1;
+            }
+        }
+        return;
+    }
     if message.is_null() || data_out.is_null() {
         return;
     }
@@ -1318,6 +1360,9 @@ impl Default for HighsPtr {
         unsafe {
             Highs_setCallback(ptr, Some(highs_log_callback), null_mut());
             Highs_startCallback(ptr, kHighsCallbackLogging);
+            // Needed so `HEkk::bailout` calls us every simplex iteration; we
+            // use it to enforce the loop-count work limit.
+            Highs_startCallback(ptr, kHighsCallbackSimplexInterrupt);
         }
         Self(ptr)
     }
