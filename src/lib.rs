@@ -235,6 +235,15 @@ impl Model {
         unsafe { Highs_getNumNz(self.highs.ptr()) as usize }
     }
 
+    /// Total time HiGHS has spent inside `run` on this instance.
+    ///
+    /// HiGHS's `time_limit` option is compared against this *cumulative*
+    /// figure, not against the time of the current call, so callers that
+    /// reuse a model must add it to whatever budget they want to grant.
+    pub fn run_time(&self) -> f64 {
+        unsafe { Highs_getRunTime(self.highs.ptr()) }
+    }
+
     /// Returns the LP data in the problem
     pub fn get_row_lp(
         &self,
